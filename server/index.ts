@@ -216,7 +216,6 @@ app.use((req: express.Request, res: express.Response, next: express.NextFunction
 });
 
 app.use("/assets", express.static(path.resolve(process.cwd(), "assets")));
-app.use(express.static(path.resolve(process.cwd(), "static-build")));
 
 log("Expo routing configured");
 
@@ -224,15 +223,14 @@ const { registerRoutes } = require("./routes");
 registerRoutes(app);
 
 log("API routes registered");
-// SPA fallback: serve Expo Web for any non-API route
-app.use((req, res, next) => {
-  if (req.path.startsWith("/api")) return next();
 
+app.use(express.static(path.resolve(process.cwd(), "static-build")));
+
+app.use((_req, res) => {
   const indexPath = path.resolve(process.cwd(), "static-build", "index.html");
   if (fs.existsSync(indexPath)) {
     return res.sendFile(indexPath);
   }
-
   return res.status(404).send("static-build/index.html not found");
 });
 
