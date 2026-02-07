@@ -10,10 +10,10 @@ const port = parseInt(process.env.PORT || "5000", 10);
 
 const app = express();
 
-app.get("/", (_req, res) => {
-  res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
-  res.end("ok");
-});
+//app.get("/", (_req, res) => {
+  //res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
+  //res.end("ok");
+//});
 
 app.get("/health", (_req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
@@ -223,7 +223,17 @@ log("Expo routing configured");
 const { registerRoutes } = require("./routes");
 registerRoutes(app);
 
-log("Routes registered");
+log("API routes registered");
+
+// Serve Expo Web SPA for any non-API route (e.g. /admin, /quiz, /settings)
+app.get("*", (req, res, next) => {
+  if (req.path.startsWith("/api")) return next();
+  // if a real file exists (assets), let static handle it
+  const indexPath = path.resolve(process.cwd(), "static-build", "index.html");
+  if (fs.existsSync(indexPath)) return res.sendFile(indexPath);
+  return res.status(404).send("static-build/index.html not found");
+});
+
 
 app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
   const error = err as { status?: number; statusCode?: number; message?: string };
