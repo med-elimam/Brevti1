@@ -537,9 +537,25 @@ function SourcesTab({ api, subjects, adminToken }: { api: any; subjects: any[]; 
       const file = result.assets[0];
       setUploading(true); setMsg(null);
       const formData = new FormData();
-      formData.append('file', { uri: file.uri, name: file.name, type: file.mimeType || 'application/octet-stream' } as any);
+
+if (Platform.OS === 'web') {
+  // في الويب: استعمل File الحقيقي
+  const blob = await fetch(file.uri).then(r => r.blob());
+  const webFile = new File([blob], file.name, { type: file.mimeType || 'application/octet-stream' });
+  formData.append('file', webFile);
+} else {
+  // في الهاتف: نفس الكود الحالي
+  formData.append('file', {
+    uri: file.uri,
+    name: file.name,
+    type: file.mimeType || 'application/octet-stream',
+  } as any);
+}
+
       formData.append('subject_id', String(subjectId));
       if (lessonId) formData.append('lesson_id', String(lessonId));
+
+      
       const baseUrl = getApiUrl();
       const res = await globalThis.fetch(new URL('/api/admin/sources/upload', baseUrl).toString(), {
         method: 'POST', headers: { 'X-Admin-Token': adminToken }, body: formData,
