@@ -1,0 +1,45 @@
+TASK: Fix Replit publish health-check timeouts permanently.
+
+CONTEXT:
+Publishing fails because health checks hit "/" and time out. Our server registers "/" and "/health", but we call initializeApp() immediately after app.listen(), and initializeApp performs heavy synchronous work (middleware + static + routes + seed + fs reads). That blocks the event loop so "/" doesn't respond fast enough during startup.
+
+GOAL:
+1) "/" must respond immediately with status 200 and plain text "ok" ALWAYS, even while the app is still initializing.
+2) "/health" must respond immediately with status 200 and plain text "ok" ALWAYS.
+3) Defer ALL expensive initialization (register middleware/routes/static, db open, seedDatabase, manifest handling, templates reading) to the next tick using setImmediate / setTimeout, so health checks never get blocked.
+4) Add a readiness flag:
+   - Start with isReady=false
+   - After init completes, isReady=true
+   - Add "/api/ready" returning { ok:true, ready:isReady, uptime_ms, ts } (fast).
+5) Ensure seedDatabase never blocks startup:
+   - run it in setTimeout(() => seedDatabase(), 0)
+   - if it does large work, chunk it or make it conditional and fast (already checks tables empty).
+6) Ensure we listen on 0.0.0.0 and process.env.PORT.
+7) Confirm publish uses VM deployment (persistent FS), but the main issue here is health-check speed.
+
+IMPLEMENTATION DETAILS (server/index.ts):
+- Keep these at top BEFORE app.listen:
+  app.get("/", ...send("ok"))
+  app.get("/health", ...send("ok"))
+  app.get("/api/ready", ...)
+
+- Start server:
+  const server = app.listen(port, "0.0.0.0", () => log(...));
+
+- DO NOT call initializeApp() directly inside listen callback.
+  Instead:
+    setImmediate(() => initializeApp().catch(console.error));
+
+- In initializeApp():
+  - Wrap heavy blocks (templates fs.readFileSync, static-build manifest routing, require("./routes"), registerRoutes, error handler, seedDatabase) inside try/catch but DO NOT block readiness endpoints.
+  - Set isReady=true at the very end after routes are registered.
+  - Seed DB in background with setTimeout.
+
+- IMPORTANT: No fs.readFileSync or require-heavy work should run before the event loop can answer "/" quickly.
+
+After changes:
+- Run the repl and curl "/" repeatedly during startup to verify instant response.
+- Publish again.
+
+DELIVERABLE:
+Commit the changes and show the exact diff for server/index.ts.

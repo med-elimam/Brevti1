@@ -1,0 +1,165 @@
+PROJECT:
+Repo: https://github.com/med-elimam/Brevti
+
+OBJECTIVE:
+Continue the existing app exactly as it is.
+Do NOT rebuild architecture.
+Do NOT implement crawler, OCR, indexing, or RAG.
+
+Only extend the app so that each subject contains real lessons fetched from RIMBAC website and explained using AI.
+
+---------------------------------------------------
+
+PRIMARY CONTENT SOURCE:
+https://rimbac.com/المسابقات-الوطنية/التحضير-لمسابقة-دخول-الثانوية-ابريفه/
+
+---------------------------------------------------
+
+SCOPE RULES:
+
+✔ Keep all existing navigation and UI untouched
+✔ Add lesson content inside each subject
+✔ Fetch lesson content live from RIMBAC pages
+✔ Use AI only to explain content
+✔ Do NOT store or index website
+✔ Do NOT crawl multiple pages automatically
+✔ Fetch only when user opens lesson
+
+---------------------------------------------------
+
+SUBJECTS TO KEEP:
+
+- الفيزياء والكيمياء
+- الرياضيات
+- العربية
+- الفرنسية
+- التاريخ والجغرافيا
+- التربية الإسلامية
+- التربية المدنية
+- العلوم الطبيعية
+
+---------------------------------------------------
+
+LANGUAGE RULES:
+
+If lesson original language is French:
+- Show French original text
+- Generate Arabic explanation
+
+If lesson original is Arabic:
+- Show Arabic text
+- Generate simplified Arabic explanation
+
+---------------------------------------------------
+
+IMPLEMENTATION DETAILS:
+
+1) Create a new server endpoint:
+
+GET /api/lessons?subject=...
+
+Behavior:
+- Map subject to RIMBAC URL section
+- Fetch HTML page
+- Extract visible text content
+- Return clean text
+
+---------------------------------------------------
+
+2) Create AI Explanation Endpoint:
+
+POST /api/explain
+
+Input:
+{
+  text: string
+}
+
+Behavior:
+- Send text to OpenAI
+- Ask AI to explain lesson in simple Arabic
+- Return explanation
+
+---------------------------------------------------
+
+3) Frontend Changes:
+
+When user opens a subject:
+
+Show:
+- List of lessons extracted from RIMBAC page
+
+When user opens lesson:
+
+Show:
+- Original lesson text
+- Button:
+  "شرح الدرس بالذكاء الاصطناعي"
+
+When pressed:
+- Call /api/explain
+- Display explanation below lesson
+
+---------------------------------------------------
+
+SUBJECT TO URL MAPPING:
+
+رياضيات:
+https://rimbac.com/المسابقات-الوطنية/التحضير-لمسابقة-دخول-الثانوية-ابريفه/
+
+(Use same hub page and filter math content inside text.)
+
+---------------------------------------------------
+
+AI RULES:
+
+Use OpenAI Node SDK
+Use environment variable:
+
+OPENAI_API_KEY
+
+Default model:
+gpt-4.1-mini
+
+Prompt to AI:
+"اشرح هذا الدرس بطريقة مبسطة لتلميذ مسابقة دخول الثانوية في موريتانيا"
+
+---------------------------------------------------
+
+ERROR HANDLING:
+
+If page cannot be fetched:
+Show Arabic message:
+"تعذر تحميل محتوى الدرس حالياً"
+
+---------------------------------------------------
+
+UI RULE:
+
+Add footer text on all screens:
+Mohamed el imam
+
+---------------------------------------------------
+
+APP NAME:
+
+Keep Arabic name:
+بريفتي
+
+---------------------------------------------------
+
+DELIVERABLES:
+
+- Working lesson fetch
+- AI explanation working
+- No breaking existing app
+- Minimal new code only
+
+---------------------------------------------------
+
+START NOW:
+1) Inspect existing routes
+2) Add lesson API
+3) Add AI explanation endpoint
+4) Connect to subject screens
+Proceed until working.

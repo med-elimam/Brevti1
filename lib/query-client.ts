@@ -1,0 +1,87 @@
+import { fetch } from "expo/fetch";
+import { QueryClient, QueryFunction } from "@tanstack/react-query";
+
+/**
+ * Gets the base URL for the Express API server
+ * @returns {string} The API base URL
+ */
+export function getApiUrl(): string {
+  const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
+  if (baseUrl) {
+    return baseUrl.replace(/\/$/, '');
+  }
+
+  const host = process.env.EXPO_PUBLIC_DOMAIN;
+  if (host) {
+    const cleanHost = host.replace(/:5000$/, '').replace(/:80$/, '').replace(/:443$/, '');
+    return `https://${cleanHost}`;
+  }
+
+  if (typeof window !== 'undefined' && window.location) {
+    return window.location.origin;
+  }
+
+  return 'http://localhost:5000';
+}
+
+async function throwIfResNotOk(res: Response) {
+  if (!res.ok) {
+    const text = (await res.text()) || res.statusText;
+    throw new Error(`${res.status}: ${text}`);
+  }
+}
+
+export async function apiRequest(
+  method: string,
+  route: string,
+  data?: unknown | undefined,
+): Promise<Response> {
+  const baseUrl = getApiUrl();
+  const url = new URL(route, baseUrl);
+
+  const res = await fetch(url.toString(), {
+    method,
+    headers: data ? { "Content-Type": "application/json" } : {},
+    body: data ? JSON.stringify(data) : undefined,
+    credentials: "include",
+  });
+
+  await throwIfResNotOk(res);
+  return res;
+}
+
+type UnauthorizedBehavior = "returnNull" | "throw";
+export const getQueryFn: <T>(options: {
+  on401: UnauthorizedBehavior;
+}) => QueryFunction<T> =
+  ({ on401: unauthorizedBehavior }) =>
+  async ({ queryKey }) => {
+    const baseUrl = getApiUrl();
+    const url = new URL(queryKey.join("/") as string, baseUrl);
+
+    const res = await fetch(url.toString(), {
+      credentials: "include",
+    });
+
+    if (unauthorizedBehavior === "returnNull" && res.status === 401) {
+      return null;
+    }
+
+    await throwIfResNotOk(res);
+    return await res.json();
+  };
+
+export const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      queryFn: getQueryFn({ on401: "throw" }),
+      refetchInterval: false,
+      refetchOnWindowFocus: false,
+      staleTime: Infinity,
+      retry: false,
+    },
+    mutations: {
+      retry: false,
+    },
+  },
+});

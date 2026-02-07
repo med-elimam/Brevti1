@@ -1,0 +1,113 @@
+You are working inside my existing Expo + Express (TypeScript) monorepo on Replit.
+Your job: prepare a clean, exportable “production-ready” version that I can download as ZIP and deploy the server to Railway/Fly with minimal edits.
+
+GOALS (must all be done):
+A) Branding + Splash assets
+B) In-app first screen showing logo then continue
+C) Single environment variable for API base URL (so moving server host changes only 1 value)
+D) Repo ready to export & deploy on Railway/Fly (no Replit-specific assumptions)
+E) Keep current features (admin, sources/pdf uploads, AI tools, quizzes, exams, lessons). Do not remove anything.
+
+-------------------------
+A) BRANDING ASSETS
+1) Create folder: assets/branding/
+2) Add these files inside (create them if missing or copy from existing if already present):
+   - assets/branding/icon.png (1024x1024)
+   - assets/branding/adaptive-icon.png (1024x1024)
+   - assets/branding/splash.png (1242x2436)
+   - assets/branding/favicon.png (48x48)
+   (If you cannot generate images, create placeholders and clearly tell me; but prefer using existing logo image already in repo if available.)
+
+3) Update Expo config (app.json OR app.config.js; keep whichever the repo uses):
+   - expo.name = "Brevti"
+   - expo.slug = "brevti"
+   - expo.scheme = "brevti"
+   - expo.icon points to ./assets/branding/icon.png
+   - expo.splash.image points to ./assets/branding/splash.png
+   - expo.splash.resizeMode = "contain"
+   - expo.splash.backgroundColor = "#FFFFFF"
+   - android.adaptiveIcon.foregroundImage points to ./assets/branding/adaptive-icon.png
+   - android.adaptiveIcon.backgroundColor = "#FFFFFF"
+   - web.favicon points to ./assets/branding/favicon.png
+
+4) IMPORTANT: Set stable identifiers (do NOT change later):
+   - android.package = "com.brevti.app" (or a clean unique value; pick one and keep it)
+   - ios.bundleIdentifier = "com.brevti.app"
+
+-------------------------
+B) FIRST SCREEN INSIDE APP (NOT the native splash)
+1) Add a screen component that shows the logo centered for ~1.2 seconds then routes to the main home.
+2) Use expo-router if the project uses it:
+   - Create app/splash.tsx (or the correct router folder in this repo).
+   - It must show the logo image from assets/branding/icon.png on white background.
+   - After 1200ms, router.replace("/") (or the correct main route).
+3) Make splash screen the FIRST route:
+   - Ensure app entry opens /splash first, then continues.
+   - Do not break existing navigation.
+
+-------------------------
+C) ONE ENV VAR FOR API BASE URL
+1) Add env variable support for the mobile app:
+   - EXPO_PUBLIC_API_BASE_URL
+2) Find where the mobile app currently calls the server (fetch to /api/...) and centralize to one helper:
+   - Create something like src/config/api.ts exporting:
+     export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:5000";
+3) Replace all hard-coded domains with API_BASE_URL.
+4) Ensure it works for:
+   - Local dev
+   - Replit workspace
+   - External server on Railway/Fly
+
+5) Add .env.example at repo root:
+   EXPO_PUBLIC_API_BASE_URL=http://localhost:5000
+   ADMIN_TOKEN=change_me
+   OPENAI_API_KEY=optional_if_used
+   (include whatever env vars server needs; keep it accurate)
+
+-------------------------
+D) SERVER READY FOR RAILWAY/FLY
+1) Ensure server listens on process.env.PORT and 0.0.0.0.
+2) Ensure uploads path is relative + stable:
+   - Use ./uploads
+   - Ensure directory exists on startup (mkdirp)
+3) Ensure SQLite path is stable:
+   - Use ./data/app.db
+   - Ensure ./data exists on startup
+4) Ensure CORS remains correct.
+5) Add production scripts for server:
+   - package.json should have:
+     "start": "node dist/server/index.js" OR "tsx server/index.ts" depending on setup.
+     Provide a clean "build" step if needed.
+6) Add README DEPLOY section:
+   - How to deploy to Railway
+   - How to deploy to Fly
+   - What env vars to set
+   - What volume/persistent storage is needed for data/app.db and uploads (mention both)
+   Keep it short but correct.
+
+7) IMPORTANT: Do NOT force Replit-specific deploy settings. Repo must run anywhere.
+
+-------------------------
+E) ZIP EXPORT PREP
+1) Ensure repo runs with:
+   - npm install
+   - npm run dev (if exists)
+   - npm run start (production)
+2) Ensure there are no absolute paths or Replit-only URLs.
+3) Make a final checklist at the end: what changed + where.
+
+-------------------------
+OUTPUT REQUIRED
+After you implement:
+- List every changed/added file
+- Give me exact steps to:
+  1) Download ZIP
+  2) Deploy server to Railway/Fly
+  3) Set EXPO_PUBLIC_API_BASE_URL in the mobile build
+  4) Build AAB/APK with EAS (commands)
+
+DO NOT:
+- Remove features
+- Rewrite architecture
+- Add new frameworks
+- Make fake claims. Verify by running the app and server in the workspace and confirming no build errors.

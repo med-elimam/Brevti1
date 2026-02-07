@@ -1,0 +1,50 @@
+You must fix Replit publishing health-check failures and prepare the repo for exporting to any hosting with minimal changes.
+
+Context:
+- Express server in server/index.ts.
+- Publishing fails because health checks on "/" time out or require specific headers/status codes.
+- The app must respond FAST on "/" during startup. No expensive work on "/" or before listen.
+- DB seeding and any heavy init must NOT block readiness.
+- Also ensure persistence: SQLite + uploads should remain stable (vm deployment is desired on Replit, but code must not assume Replit).
+
+Hard requirements:
+1) Make "/" and "/health" return immediately in < 10ms:
+   - Must be plain text "ok"
+   - Must set Content-Type: text/plain; charset=utf-8
+   - Must set Cache-Control: no-store
+   - Must NOT depend on any middleware, DB, or async init.
+   - Must return status 200 always.
+
+2) Add readiness endpoint "/ready":
+   - Returns 200 only after routes + db are initialized successfully.
+   - Returns 503 before readiness.
+   - Health checks should keep using "/" but "/ready" should exist for diagnostics.
+
+3) Ensure no middleware delays the root endpoint:
+   - Register "/" and "/health" BEFORE any app.use middleware.
+   - Ensure no global middleware intercepts them.
+   - Add a small middleware guard: if path is "/" or "/health" bypass everything.
+
+4) Fix startup flow:
+   - app.listen must start quickly.
+   - Move initializeApp() so it never blocks the event loop before listen.
+   - Seed DB asynchronously AFTER server is listening, and never block "/".
+   - If seedDatabase is async, await it inside a background async function but do not block the process from serving "/" immediately.
+
+5) Ensure PORT binding is correct for Replit:
+   - Use process.env.PORT and listen on 0.0.0.0.
+   - No hard-coded port for production.
+
+6) Add structured logs:
+   - On startup log timestamps: server listening, middleware ready, routes registered, db ready.
+   - On every request to "/" log duration if > 50ms.
+
+7) Prepare for export to another host:
+   - Add .env.example with required variables.
+   - Ensure API base URL usage is via env on mobile.
+   - Ensure no Replit-only paths break local run.
+
+Deliverables:
+- Commit changes to server/index.ts and any needed files.
+- Provide final explanation of what was changed and why publishing will pass.
+- Ensure "Republish" succeeds.

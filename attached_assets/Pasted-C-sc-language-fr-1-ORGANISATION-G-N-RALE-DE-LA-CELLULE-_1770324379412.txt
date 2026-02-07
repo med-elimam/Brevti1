@@ -1,0 +1,105 @@
+C) sc (language=fr):
+1 ORGANISATION GÉNÉRALE DE LA CELLULE
+2 REPRODUCTION CHEZ L’HOMME
+3 SYSTÈME NERVEUX ET MOTRICITÉ
+4 ROCHES MAGMATIQUES ET MÉTAMORPHIQUES
+5 ÉCOLOGIE
+
+D) islam (language=ar):
+1 تعريف علم التوحيد واهميته ومكانته
+2 حدوث الكون أدلته النقلية والعقلية
+3 خلق الإنسان واستخلافه في الأرض
+4 أدلة الصفات الواجبة في حق اللّٰه تعالى
+5 الجائز والمستحيل في حق اللّٰه تعالى
+6 الرسل (صفاتهم، والحكمة من بعثتهم)
+7 معجزات الرسل والفرق بينها وبين غيرها من الخوارق
+8 تكامل الرسالات السماوية وختمها برسالة محمد رسول اللّٰه صلى اللّٰه عليه وسلم
+9 سورة النور من الآية 1 إلى الآية10
+10 سورة النور من الآية 11 إلى الآية 20
+11 سورة النور من الآية 21 إلى الآية 26
+12 سورة النور من الآية 27 إلى الآية 31
+13 سورة النور من الآية 32 إلى الآية 38
+14 سورة النور من الآية 39 إلى الآية 44
+15 سورة النور من الآية 45 إلى الآية 52
+16 سورة النور من الآية 53 إلى الآية 57
+17 سورة النور من الآية 58 إلى الآية 60
+18 سورة النور من الآية 61 إلى الآية 64
+19 حرمة الغش والخديعة والتحايل
+20 تحريم الغلول والرشوة
+21 الظلم والاحتقار
+22 الكبر والعجب ورؤية الفضل على الغير
+23 الأمر بحفظ اللسان وبقية الجوارح
+24 وسائل التسلية وفق الضوابط الشرعية
+25 نزول القرآن منجما والحكمة منه
+26 اسباب النزول
+27 المكي و المدني ( أهدافهما وخصائصهما)
+28 التفسير و مناهجه
+29 ترجمة لبعض المفسرين
+30 بعض المعذبين في سبيل اللّٰه
+31 السفارة في الإسلام من خلال جعفر
+32 الزوجة وأثرها في الدعوة من خلال خديجة بنت خويلد
+33 الدعوة والتعليم من خلال مصعب بن عمير
+34 التضحية في سبيل الإسلام من خلال صهيب الرومي
+35 مراجعة عامة للبيع
+36 بيع الغائب
+37 البيع على البرنامج
+38 المزاد العلني (صفته - شروطه - حكمه)
+39 بيع الثمار والزروع
+40 العيوب في البيع
+41 السلم
+42 الهبة والصدقة
+43 الحبس والوقف
+44 العارية و الوديعة
+45 النكاح حكمه - وحكمته - ومقدماته
+46 أركان النكاح وشروطه
+47 النساء المحرمات
+48 النفقة والحضانة
+49 الطلاق والعدة والارتجاع
+50 الظهار والخلع
+51 الإيلاء واللعان
+52 الأنكحة الفاسدة
+53 الأيمان والنذور
+
+E) fr (language=fr):
+1 Module I: discours explicatif - Séquence 1 : C’est surprenant !
+2 Séquence 2 : Qu’est-ce qui s’est passé et comment cela est arrivé ?
+3 Séquence 3 : Qu’est-ce que c’est et comment ça fonctionne ?
+4 Séquence 4 : Je choisirais plutôt…
+5 Module 2: discours argumentatif - Séquence 5 : Pour ma part, voila ce que je pense.
+6 Séquence 6 : Je ne suis pas du même avis !
+7 Séquence 7 : On est d’accord ?
+8 Séquence 8 : Quel métier choisir ?
+
+FRONTEND CHANGES:
+- Remove/disable any “external lessons fetch” (the error: Failed to fetch external lessons).
+- Subject screen must load lessons using GET /api/lessons?subject_key=...
+- Lesson detail screen:
+  - show lesson title
+  - show content_original (if empty show Arabic: "هذا الدرس لم يتم إدخال محتواه بعد.")
+  - show explanation_ar (if exists)
+  - button: "شرح الدرس بالذكاء الاصطناعي" calls POST /api/explain with lessonId
+  - If content is empty, show message and do not call AI.
+- Add a simple admin-only editor screen OR reuse existing Admin screen:
+  - list lessons
+  - edit content_original in textarea
+  - save using POST /api/lesson/:id with ADMIN_TOKEN.
+
+NETWORK FIX REQUIREMENT:
+- Ensure getApiUrl() works on Replit + Expo Go mobile:
+  - It must use the same deployed domain, HTTPS, no hardcoded port 5000 on client.
+  - Client should call relative /api/... when running web, and absolute when mobile.
+- Backend should expose API on a single public port (Replit external :80). Internally it can listen on process.env.PORT.
+
+DELIVERABLES:
+1) Implement DB + seeding (idempotent).
+2) Implement endpoints above with TS types.
+3) Update frontend to use backend only.
+4) Ensure no “Network request failed” on phone.
+5) Adjust footer size to avoid overlap.
+6) Provide exact run commands for Replit:
+   - install
+   - dev
+   - start (prod)
+
+START:
+Inspect the repo, locate server entry and current lessons fetching logic, then implement the changes end-to-end until it runs.

@@ -1,0 +1,327 @@
+PROJECT NAME:
+بريفتي
+
+REPOSITORY:
+https://github.com/med-elimam/Brevti
+
+SYSTEM ROLE:
+You are a senior full-stack production engineer responsible for building a stable, scalable, secure AI-powered educational platform.
+
+Your job is to implement ALL requested features using production best practices while maintaining performance, security, and code clarity.
+
+Never generate placeholder code.
+Never break existing features.
+
+---
+
+MAIN GOAL
+
+Build a Mauritanian exam preparation platform for:
+
+Concours d’entrée au lycée (Abreivah)
+
+The platform must automatically collect and explain official materials from RIMBAC.
+
+The platform must support:
+
+• Lessons
+• Books
+• Exams
+• Solutions
+• AI explanations
+• AI generated exercises
+• Subject RAG chat
+
+---
+
+OFFICIAL DATA SOURCES
+
+Crawler must start from:
+
+MAIN HUB
+https://rimbac.com/المسابقات-الوطنية/التحضير-لمسابقة-دخول-الثانوية-ابريفه/
+
+EXAMS HUB
+https://rimbac.com/المسابقات-الوطنية/التحضير-لمسابقة-دخول-الثانوية-ابريفه/امتحانات-مسابقة-دخول-الثانويةابريفه/
+
+YEAR EXAMPLES
+https://rimbac.com/المسابقات-الوطنية/التحضير-لمسابقة-دخول-الثانوية-ابريفه/امتحان-مسابقة-دخول-الثانوية-ابريفه-2023/
+
+https://rimbac.com/المسابقات-الوطنية/التحضير-لمسابقة-دخول-الثانوية-ابريفه/امتحانات-ابريفه-مع-الحل-2020/
+
+https://rimbac.com/المسابقات-الوطنية/التحضير-لمسابقة-دخول-الثانوية-ابريفه/امتحانات-ابريفه-2019-مع-التصحيح/
+
+Crawler must automatically discover new pages.
+
+---
+
+SUBJECTS (MUST MATCH EXACT ARABIC)
+
+الفيزياء والكيمياء  
+الرياضيات  
+العربية  
+الفرنسية  
+التاريخ والجغرافيا  
+التربية الإسلامية  
+التربية المدنية  
+العلوم الطبيعية  
+
+---
+
+LANGUAGE POLICY
+
+French resources:
+Display original French text.
+Generate Arabic explanation.
+
+Arabic resources:
+Display Arabic content.
+Generate Arabic explanation.
+
+Default AI output language: Arabic.
+
+French only if user explicitly requests French.
+
+If answer unsupported by indexed sources:
+Return Arabic message indicating absence of data.
+
+---
+
+CRAWLER PRODUCTION RULES
+
+Must respect:
+
+robots.txt
+Website usage policies
+Throttle crawling to 1 request per second
+Max crawl depth = 3
+Same-domain only
+Stop crawling on HTTP block or captcha detection
+
+Crawler must extract:
+
+Article text using readability parsing
+Ignore menus/ads/navigation
+Extract downloadable attachments
+Extract embedded viewers
+Extract images used as exam sheets
+
+---
+
+FILE HANDLING
+
+Automatically download:
+
+PDF files
+Exam images
+Embedded resources
+
+Store files in:
+
+./data/resources/
+
+---
+
+OCR REQUIREMENTS
+
+Use:
+
+Tesseract.js server side
+
+Supported languages:
+Arabic
+French
+
+Process scanned PDFs and exam images.
+
+---
+
+TEXT PROCESSING
+
+Maximum PDF size: 30MB
+Chunk size: 12k–15k characters
+Chunk overlap: 300 characters
+Normalize whitespace and remove artifacts.
+
+---
+
+DATABASE ARCHITECTURE
+
+Use SQLite.
+
+Database path:
+./data/app.db
+
+Tables:
+
+resources:
+id
+url UNIQUE
+type
+subject
+year
+title
+localPath
+extractedText
+language
+createdAt
+
+chunks:
+id
+resourceId
+chunkText
+embedding
+chunkIndex
+
+Index must be idempotent.
+
+---
+
+AI / RAG SYSTEM
+
+Use OpenAI Node SDK.
+
+Environment variables:
+
+OPENAI_API_KEY
+OPENAI_MODEL (default gpt-4.1-mini)
+ADMIN_TOKEN
+
+Embedding model:
+text-embedding-3-small
+
+Store embeddings as JSON arrays.
+
+Use cosine similarity search.
+
+Limit retrieved chunks to top 6.
+
+Never allow model to answer outside retrieved chunks.
+
+---
+
+AI OUTPUT FORMAT
+
+Must return strict JSON only:
+
+lesson
+explanation_ar
+key_points
+exercises
+glossary
+citations
+
+Citation structure:
+
+resourceId
+url
+title
+excerpt
+
+---
+
+SECURITY
+
+Protect indexing endpoint using ADMIN_TOKEN.
+
+Never expose API keys.
+
+---
+
+FRONTEND FEATURES
+
+Admin Screen:
+Manual indexing trigger
+Indexing logs
+Resource statistics
+
+Subject Screen:
+List indexed lessons/books/exams
+Filters by type and year
+
+Lesson Screen:
+Original text
+Arabic explanation
+AI exercises grounded in indexed sources
+Quiz mode with answers hidden
+
+Chat Screen:
+Subject restricted RAG answering
+Display citations
+Display French excerpts when subject is French
+
+---
+
+PERFORMANCE REQUIREMENTS
+
+Cache embeddings in database.
+Cache frequently accessed lessons.
+Avoid reprocessing existing resources.
+Use streaming where possible.
+
+---
+
+ERROR HANDLING
+
+All user errors displayed in Arabic.
+All server errors logged.
+
+---
+
+UI REQUIREMENTS
+
+App name must be:
+
+بريفتي
+
+Footer must exist globally:
+
+Mohamed el imam
+
+---
+
+REPLIT DEPLOYMENT RULES
+
+Run backend API and Expo client inside same instance.
+Use single public port.
+Provide scripts to start both.
+
+---
+
+BUILD & DELIVERY
+
+Must provide:
+
+Install command
+Run command
+Index command
+Testing instructions
+Verification checklist
+
+---
+
+IMPLEMENTATION ORDER
+
+1. Analyze repository structure
+2. Implement crawler service
+3. Implement OCR pipeline
+4. Implement indexing system
+5. Implement embedding + RAG
+6. Implement API endpoints
+7. Implement UI screens
+8. Integrate everything
+9. Verify stability
+10. Provide usage instructions
+
+---
+
+STRICT RULES
+
+No hallucinated content.
+No placeholder data.
+No hardcoded secrets.
+No breaking existing navigation.
+Follow TypeScript best practices.
+Ensure production stability.
+
+Begin immediately.

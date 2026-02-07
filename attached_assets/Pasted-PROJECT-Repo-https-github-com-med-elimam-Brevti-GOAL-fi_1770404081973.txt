@@ -1,0 +1,68 @@
+PROJECT:
+Repo: https://github.com/med-elimam/Brevti
+
+GOAL (fix the current error, minimal changes):
+The Expo app currently fails with:
+"Failed to fetch external lessons: TypeError: Network request failed"
+because the app is fetching RIMBAC directly from the client (CORS / network restrictions).
+Rimbac is NOT my site, so we must NOT fetch it directly from the app.
+We must fetch RIMBAC content ONLY server-side, then the app calls our server.
+
+TASKS (do end-to-end working code, minimal scope):
+1) Server: Add a safe proxy endpoint that fetches a given RIMBAC URL server-side and returns parsed lesson items.
+   - Endpoint: GET /api/rimbac/lessons?subject=<arabicSubject>
+   - It must fetch from:
+     https://rimbac.com/المسابقات-الوطنية/التحضير-لمسابقة-دخول-الثانوية-ابريفه/
+     and (if needed) follow internal links from same domain to locate the subject section.
+   - Return JSON list:
+     [
+       { "id": "stable-id", "title": "...", "url": "...", "type": "lesson|book|exam", "language": "ar|fr" }
+     ]
+   - Use Node fetch on the server (NOT client).
+   - Add headers (User-Agent) and timeout.
+   - Add throttling: 1 req/sec and simple in-memory cache (e.g., 10 minutes) to avoid hammering RIMBAC.
+   - Validate that the target URL is within rimbac.com and within the Abreivah prep section only (prevent open proxy).
+   - If blocked or failed, return 502 with Arabic message:
+     "تعذر جلب الدروس من RIMBAC الآن. حاول لاحقًا."
+
+2) Server: Add item endpoint:
+   - GET /api/rimbac/item?url=<encoded>
+   - Fetch the page server-side, extract main text (strip menus/footer), return:
+     { "title": "...", "url": "...", "original_text": "...", "language":"ar|fr" }
+   - If language is French, keep original French text; the app will display it and show Arabic explanation later (no AI yet).
+
+3) App: Replace ALL direct fetches to rimbac.com with calls to our server:
+   - Find the screen that throws the error (the log says [id].tsx line ~53).
+   - Change it to call:
+     `${API_BASE_URL}/api/rimbac/lessons?subject=${encodeURIComponent(subjectName)}`
+   - Ensure API_BASE_URL is configured:
+     - In app env/config use EXPO_PUBLIC_API_BASE_URL
+     - Fallback to existing server URL used in the project.
+   - Add user-friendly error toast in Arabic instead of console spam.
+
+4) App: Lessons UI wiring:
+   - On subject page, show fetched lessons list from server.
+   - Tapping a lesson opens detail screen and calls:
+     `${API_BASE_URL}/api/rimbac/item?url=${encodeURIComponent(item.url)}`
+   - Render original_text (Arabic or French).
+   - Keep existing navigation and footer text "Mohamed el imam" on all screens.
+
+5) Deliverables:
+   - Commit changes.
+   - Provide run commands for Replit:
+     npm install
+     npm run <correct-script-for-server>
+     npm run <correct-script-for-expo>
+   - If scripts are missing, fix package.json scripts to include:
+     "dev" for server and "start" for expo (do not break current setup).
+
+IMPORTANT CONSTRAINTS:
+- Do NOT add heavy crawler/OCR/RAG now. Keep minimal: proxy + parsing + UI display.
+- No manual PDF uploads needed in this stage.
+- TypeScript correct. Clear Arabic errors.
+
+START:
+- Inspect repo to locate server entry and routes file (likely server/routes.ts).
+- Implement endpoints.
+- Update app fetch usage at the exact failing file [id].tsx line ~53 and any similar places.
+- Test: open subject (الرياضيات) -> list loads without network error -> open item -> text shows.

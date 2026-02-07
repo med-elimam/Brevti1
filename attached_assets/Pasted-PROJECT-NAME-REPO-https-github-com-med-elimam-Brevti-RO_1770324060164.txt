@@ -1,0 +1,108 @@
+PROJECT NAME: بريفتي
+REPO: https://github.com/med-elimam/Brevti
+
+ROLE:
+You are a senior full-stack engineer. Objective: implement a stable content system based on my provided lesson titles ONLY (no crawling, no external websites, no PDFs, no OCR). The app must work reliably on mobile through Expo Go and later be ready for APK/IPA.
+
+STRICT RULES:
+- Do NOT crawl or fetch any external website (NO RIMBAC, NO internet scraping).
+- Do NOT add placeholder lesson content. Only create lesson records with titles and empty body fields that I will fill later.
+- Keep existing navigation working. Don’t break screens.
+- All UI must stay Arabic by default.
+- Footer text exists globally: "Mohamed el imam" but MUST be small and never cover buttons (fix overlap).
+- All network calls in the Expo client must use getApiUrl() and talk only to our backend endpoints. No direct external calls.
+
+GOAL:
+Replace the current "fetch external lessons" logic with a local database-driven content system.
+
+DATA MODEL:
+Create/ensure SQLite database (server-side):
+Path: ./data/app.db
+
+Tables:
+1) subjects:
+- id (PK)
+- key (unique, e.g. "math", "pc", "svt", "islam", "fr")
+- name_ar (Arabic label shown in UI)
+
+2) lessons:
+- id (PK)
+- subject_key (FK-like, string)
+- title (original title, French or Arabic)
+- language ("fr" or "ar")
+- order_index (int)
+- content_original (TEXT, initially empty)
+- explanation_ar (TEXT, initially empty)
+- createdAt
+
+API ENDPOINTS (backend only):
+- GET /api/subjects
+  returns fixed subjects list in Arabic.
+
+- GET /api/lessons?subject_key=...
+  returns lessons for the subject ordered by order_index.
+
+- GET /api/lesson/:id
+  returns lesson detail.
+
+- POST /api/lesson/:id
+  admin update endpoint to save lesson content_original and explanation_ar (protect using ADMIN_TOKEN header).
+
+- POST /api/explain
+  Input: { lessonId }
+  Behavior:
+    - Load lesson content_original. If empty: return Arabic error "محتوى الدرس غير مُدخل بعد."
+    - Call OpenAI with model from OPENAI_MODEL (default gpt-5.2 if set, otherwise gpt-4.1-mini fallback) to generate:
+      explanation_ar + key_points + exercises (all Arabic)
+    - Save explanation_ar in DB.
+    - Return JSON.
+
+IMPORTANT: AI must only use the provided lesson content_original. If empty or insufficient, it must refuse clearly in Arabic.
+
+ENV VARS (deployment secrets already exist):
+- OPENAI_API_KEY
+- OPENAI_MODEL (set to gpt-5.2)
+- ADMIN_TOKEN
+- NODE_ENV=production
+
+SEED DATA (create once, idempotent):
+Subjects (Arabic labels exactly):
+- math: "الرياضيات"
+- pc: "الفيزياء والكيمياء"
+- svt: "العلوم الطبيعية"
+- islam: "التربية الإسلامية"
+- fr: "اللغة الفرنسية"
+
+Lessons titles to insert (order_index starts at 1 per subject):
+
+A) math (language=fr):
+1 NOMBRES REELS ET OPERATIONS
+2 ORDRE, INTERVALLES ET VALEURS ABSOLUE
+3 RACINES CARREES
+4 CALCUL LITTERAL
+5 EQUATIONS ET INEQUATIONS
+6 VECTEURS DU PLAN
+7 REPERES DU PLAN
+8 EQUATIONS DE DROITES
+9 SYSTEMES D’EQUATIONS ET D’INEQUATIONS
+10 PROJECTION DANS LE PLAN
+11 THEOREME DE THALES
+12 TRANSFORMATIONS DANS LE PLAN
+13 TRIGONOMETRIE
+14 FONCTIONS AFFINES
+15 PROBABILITES
+16 PYRAMIDE
+17 CONE DE REVOLUTION
+18 LEXIQUE
+
+B) pc (language=fr):
+1 LES MATERIAUX
+2 REACTIONS CHIMIQUES
+3 PREPARATION D’UNE SOLUTION
+4 SOLUTIONS ACIDES, BASIQUES ET NEUTRES
+5 MASSE, VOLUME ET POIDS
+6 EQUILIBRE D’UN SOLIDE SOUMIS A DEUX FORCES
+7 RESISTANCE ELECTRIQUE
+8 PUISSANCE ET ENERGIE ELECTRIQUE
+9 REFLEXION ET REFRACTION DE LA LUMIERE
+10 LES LENTILLES MINCE

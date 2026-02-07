@@ -1,0 +1,134 @@
+PROJECT: بريفتي
+REPO: https://github.com/med-elimam/Brevti
+
+ROLE:
+You are a senior full-stack production engineer. You must produce working, stable code with zero placeholder data and without breaking existing navigation.
+
+ABSOLUTE RULES:
+- Do not fetch RIMBAC from the mobile app directly. All RIMBAC fetching MUST happen server-side (Node) to avoid CORS / Network request failed.
+- The Expo client must ONLY call our own backend endpoints.
+- No hallucinated educational content. If missing: "غير موجود في مراجع RIMBAC التي تم فهرستها."
+- Keep TypeScript correct and add real error handling in Arabic.
+- Single public port for deployment.
+- Do not upgrade Expo SDK unless strictly required.
+
+CURRENT BUG TO FIX FIRST:
+On mobile: "Failed to fetch external lessons: TypeError: Network request failed" from [id].tsx loadData.
+Root cause is client-side fetch to external site or wrong base URL. Fix by routing through backend API and using correct base URL in app.
+
+TARGET FUNCTIONALITY (SCOPE REDUCED, STABLE FIRST):
+1) Keep existing UI/subjects and lessons list as it is.
+2) Replace “external lessons” fetching with:
+   - Server-side fetch + parse from RIMBAC pages
+   - Store minimal extracted lesson content in SQLite
+   - Serve to app via backend endpoints
+3) AI usage:
+   - Only for Arabic explanation + exercises, grounded in extracted text.
+   - No embeddings/OCR for now (skip OCR + embeddings to avoid complexity).
+   - If a lesson has no extracted text, AI must refuse and show missing-data message.
+
+OFFICIAL SOURCES (server-side only):
+- MAIN HUB:
+  https://rimbac.com/المسابقات-الوطنية/التحضير-لمسابقة-دخول-الثانوية-ابريفه/
+- EXAMS HUB:
+  https://rimbac.com/المسابقات-الوطنية/التحضير-لمسابقة-دخول-الثانوية-ابريفه/امتحانات-مسابقة-دخول-الثانويةابريفه/
+- YEAR EXAMPLES:
+  https://rimbac.com/المسابقات-الوطنية/التحضير-لمسابقة-دخول-الثانوية-ابريفه/امتحان-مسابقة-دخول-الثانوية-ابريفه-2023/
+  https://rimbac.com/المسابقات-الوطنية/التحضير-لمسابقة-دخول-الثانوية-ابريفه/امتحانات-ابريفه-مع-الحل-2020/
+  https://rimbac.com/المسابقات-الوطنية/التحضير-لمسابقة-دخول-الثانوية-ابريفه/امتحانات-ابريفه-2019-مع-التصحيح/
+
+SUBJECTS (fixed Arabic labels exactly):
+- الفيزياء والكيمياء
+- الرياضيات
+- العربية
+- الفرنسية
+- التاريخ والجغرافيا
+- التربية الإسلامية
+- التربية المدنية
+- العلوم الطبيعية
+
+ENV VARS (already set in deployment secrets):
+OPENAI_API_KEY
+OPENAI_MODEL (use gpt-5.2-mini by default)
+ADMIN_TOKEN
+RIMBAC_BASE_URL
+RIMBAC_ABREIVAH_HUB_URL
+RIMBAC_EXAMS_HUB_URL
+RESOURCES_DIR
+NODE_ENV
+
+IMPLEMENTATION PLAN (DO IT IN THIS ORDER):
+A) Inspect repo structure:
+   - identify backend entry (Express routes) and current API base path.
+   - find where client currently fetches "external lessons" (the failing [id].tsx / loadData).
+B) Fix the network issue permanently:
+   1) Remove ANY direct fetch from Expo app to rimbac.com.
+   2) Create backend endpoints that the app calls:
+      - GET /api/external/lesson?subject=...&slug=... (or id)
+      - GET /api/external/subjects (returns available items)
+      - POST /api/external/sync (admin-protected) to fetch latest + store in DB
+   3) Update the app to use backend base URL from a single config module that works on device + Replit.
+      - If using Expo, create a helper getApiBaseUrl() that reads:
+        - process.env.EXPO_PUBLIC_API_URL if present
+        - else fallback to window.location.origin when web
+        - else show a clear Arabic error telling the user to set the API URL.
+      - Do NOT hardcode localhost.
+C) Minimal crawler (stable):
+   - Server-only, polite (1 req/sec), depth <= 2 for now.
+   - Start from the hub URLs and collect internal links that look like lessons/exams pages.
+   - Extract:
+     - title
+     - subject (best-effort: detect from page content or categorize by matching subject keywords)
+     - language (French if majority latin, Arabic otherwise)
+     - main readable content text (use readability or cheerio + article selectors)
+   - Store in SQLite:
+     resources(id, url UNIQUE, type, subject, year, title, extractedText, language, createdAt)
+   - Idempotent: re-run updates existing rows by url.
+D) Lesson detail screen:
+   - When user opens lesson, call backend to get extractedText.
+   - Display original text.
+   - Add button "شرح الدرس بالذكاء الاصطناعي" -> calls backend POST /api/ai/explain
+     Payload: { resourceId }
+     Backend:
+       - loads extractedText from DB
+       - if empty -> return missing-data message
+       - call OpenAI with system prompt forcing citations to resource url + title, Arabic explanation
+       - return JSON:
+         { lesson, explanation_ar, key_points, exercises, glossary, citations:[{url,title,excerpt}] }
+   - Show returned content in UI.
+E) Fix footer overlap:
+   - Keep footer text "Mohamed el imam" globally BUT make it tiny and non-overlapping:
+     - use fontSize 10–11
+     - add safe padding
+     - ensure bottom tab bar and buttons are not covered (use SafeAreaView / paddingBottom).
+F) Deployment on Replit (single port):
+   - Backend serves API on process.env.PORT (external :80 on Replit publishing).
+   - Expo web build (optional) served statically by backend, OR keep mobile testing via Expo Go.
+   - Provide npm scripts:
+     - npm run dev (runs server + expo)
+     - npm run server:prod (starts server on PORT)
+   - Ensure server has a health endpoint GET /health.
+G) Produce final verification checklist:
+   - Open app on phone
+   - Open subject -> list shows (either local seeded list already present OR from backend /api/external/subjects)
+   - Open lesson -> no red screen, content loads
+   - Tap AI explain -> returns JSON and displays
+   - No direct rimbac.com fetch in client code.
+
+QUALITY BAR:
+- Add timeouts + retries server-side for RIMBAC fetch.
+- Handle 403/blocked with Arabic error message and stop.
+- Log server errors with enough detail.
+- Do not add heavy OCR/embeddings now.
+
+DELIVERABLES:
+- Commit changes.
+- Exact commands:
+  - npm install
+  - npm run dev
+  - npm run server:prod
+- Steps to trigger sync:
+  - POST /api/external/sync with header Authorization: Bearer ADMIN_TOKEN
+
+START NOW.
+First, fix the failing client fetch, then implement the backend proxy + DB, then wire UI, then footer fix, then deployment scripts.

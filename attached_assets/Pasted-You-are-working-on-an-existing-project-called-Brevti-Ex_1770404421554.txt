@@ -1,0 +1,95 @@
+You are working on an existing project called “Brevti” (Expo React Native + Express.js + SQLite). The app is Arabic RTL, offline-first, and aims to TRAIN students to PASS the Brevet exam (not long academic explanations).
+
+GOAL: Build the final “national product” version with a complete Admin CMS connected to everything in the official app:
+- Admin can create/edit/delete: subjects, lessons, sources (PDF/images), questions, exams.
+- Lessons must be short, exam-focused, structured, and not long.
+- Questions/exams must be derived from admin-provided sources, and AI can only generate “similar” questions based on those sources.
+- Replace fake counters like 0/5 with real counts from DB.
+
+HARD REQUIREMENTS:
+1) DATABASE (server-side SQLite at ./data/app.db using better-sqlite3):
+   Create/extend tables:
+   - subjects(id, key, name_ar, color, icon, order_index, is_active)
+   - lessons(id, subject_id, title_ar, order_index, status, content_blocks_json, summary_ar, updated_at)
+   - sources(id, subject_id, lesson_id nullable, type(pdf|image|text), filename, original_name, mime, size, storage_path, extracted_text, created_at)
+   - questions(id, subject_id, lesson_id, difficulty(easy|medium|hard), qtype(mcq|short|problem),
+              statement_md, options_json, correct_answer_json, solution_md, tags_json, source_ids_json, created_at)
+   - exams(id, subject_id, title_ar, year nullable, duration_minutes, structure_json, created_at)
+   - exam_questions(id, exam_id, question_id, order_index)
+
+2) ADMIN CMS (route /admin protected by ADMIN_TOKEN):
+   Screens:
+   - Subjects manager (CRUD + ordering + active toggle)
+   - Lessons manager (CRUD + ordering + publish/draft)
+   - Source uploader (PDF/images/text) + list + link to subject/lesson
+   - Questions bank (CRUD + filters by subject/lesson/difficulty)
+   - Exams builder (create exam, pick questions, order, export as mock)
+   - AI tools section:
+       a) “Generate Lesson Blocks from Sources” (per lesson)
+       b) “Generate Questions from Sources” (per lesson with target counts per difficulty)
+       c) “Generate Exam Variant similar to uploaded exam”
+   Admin must be able to edit everything manually even after AI generation.
+
+3) CONTENT FORMAT (lesson blocks):
+   content_blocks_json must be an array of blocks. Each block has:
+   { type: "goal"|"rules"|"mistakes"|"practice"|"model_solution"|"tips"|"summary",
+     title_ar, content_md, items_json(optional) }
+   The mobile app renders these blocks nicely with cards, short sections, and KaTeX math support.
+
+4) AI RULES (very strict):
+   - AI outputs must follow the block schema above, in Arabic, very short.
+   - For math: use LaTeX inside $...$ or $$...$$.
+   - AI is NOT allowed to invent content if no sources exist. If no extracted_text available, respond with an error: “No sources attached. Upload a PDF/image/text first.”
+   - For questions generation: must reference the attached sources via source_ids_json, and generate many questions:
+       Default per lesson: easy=10, medium=15, hard=10 (configurable).
+   - For exam variant: keep same structure and difficulty distribution as the imported exam.
+
+5) FILE UPLOADS:
+   - Implement /api/admin/upload (multipart) to upload PDF/images.
+   - Store in ./uploads with safe filenames.
+   - Extract PDF text via pdf-parse.
+   - For images: store file; if no OCR available, allow admin to paste text manually into “extracted_text” field (provide UI).
+   - Save extracted_text in sources table.
+
+6) API ENDPOINTS (public + admin):
+   Public:
+   - GET /api/subjects
+   - GET /api/lessons?subject_key=...
+   - GET /api/lesson/:id  (returns blocks)
+   - GET /api/questions?subject_key=...&lesson_id=...&difficulty=...
+   - GET /api/exams?subject_key=...
+   - GET /api/exam/:id  (exam + ordered questions)
+   Admin (require ADMIN_TOKEN header):
+   - CRUD subjects, lessons, sources, questions, exams
+   - POST /api/admin/ai/generate-lesson/:lesson_id
+   - POST /api/admin/ai/generate-questions/:lesson_id
+   - POST /api/admin/ai/generate-exam-variant/:exam_id
+
+7) MOBILE APP CHANGES (Expo):
+   - Replace the fake “0/5” progress with real counts: completed_lessons / total_lessons per subject.
+   - Lesson screen must render blocks with clean UI (no long markdown dump):
+       goal, rules, mistakes, practice, model solution, tips, summary.
+   - Add KaTeX rendering for LaTeX math inside markdown.
+   - Exercises screen must fetch questions filtered by subject/lesson and show enough volume, not random few.
+   - Rename “Pomodoro” everywhere to Arabic: “جلسة تركيز” (and update UI labels).
+   - Mock exam screen should use /api/exam/:id and simulate real exam:
+       timer, sections, navigation, submit, scoring, feedback.
+
+8) QUALITY BAR:
+   - No placeholder values. No 0/5 hardcoding.
+   - Everything must be driven from DB.
+   - Admin CMS must be “the source of truth” for the entire app.
+
+IMPLEMENTATION PLAN:
+- Step 1: DB migrations and seed updates.
+- Step 2: Admin CRUD endpoints + auth middleware.
+- Step 3: Upload + sources extraction.
+- Step 4: AI generation endpoints enforcing rules.
+- Step 5: Admin UI screens.
+- Step 6: Mobile UI updates (progress, lesson blocks rendering, exercises filtering, rename pomodoro).
+- Step 7: Exam builder and mock simulation.
+
+DELIVERABLES:
+- Updated code with new DB schema, endpoints, admin screens, and mobile screens.
+- Include a short README section describing admin workflow:
+   Upload sources -> generate lesson blocks -> generate question bank -> build exam -> students practice -> analytics.
