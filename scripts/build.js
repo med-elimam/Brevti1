@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const { Readable } = require("stream");
 const { pipeline } = require("stream/promises");
 
@@ -39,23 +39,16 @@ function stripProtocol(domain) {
 }
 
 function getDeploymentDomain() {
-  // Check Replit deployment environment variables first
   if (process.env.REPLIT_INTERNAL_APP_DOMAIN) {
     return stripProtocol(process.env.REPLIT_INTERNAL_APP_DOMAIN);
   }
-
   if (process.env.REPLIT_DEV_DOMAIN) {
     return stripProtocol(process.env.REPLIT_DEV_DOMAIN);
   }
-
   if (process.env.EXPO_PUBLIC_DOMAIN) {
     return stripProtocol(process.env.EXPO_PUBLIC_DOMAIN);
   }
-
-  console.error(
-    "ERROR: No deployment domain found. Set REPLIT_INTERNAL_APP_DOMAIN, REPLIT_DEV_DOMAIN, or EXPO_PUBLIC_DOMAIN",
-  );
-  process.exit(1);
+  return null;
 }
 
 function prepareDirectories(timestamp) {
@@ -495,12 +488,39 @@ function updateManifests(manifests, timestamp, baseUrl, assetsByHash) {
   console.log("Manifests updated");
 }
 
+function runWebExportOnly() {
+  console.log("No deployment domain set; building Expo Web only (static-build)...");
+  if (fs.existsSync("static-build")) {
+    fs.rmSync("static-build", { recursive: true });
+  }
+  fs.mkdirSync("static-build", { recursive: true });
+  const r = spawnSync("npx", ["expo", "export", "--platform", "web", "--output-dir", "static-build"], {
+    stdio: "inherit",
+    shell: true,
+    env: { ...process.env, CI: "1" },
+    cwd: process.cwd(),
+  });
+  if (r.status !== 0) {
+    exitWithError("Expo Web export failed.");
+  }
+  if (!fs.existsSync(path.join("static-build", "index.html"))) {
+    exitWithError("static-build/index.html was not produced by Expo Web export.");
+  }
+  console.log("Build complete. static-build/index.html is ready.");
+  process.exit(0);
+}
+
 async function main() {
-  console.log("Building static Expo Go deployment...");
+  console.log("Building static Expo deployment...");
 
   setupSignalHandlers();
 
   const domain = getDeploymentDomain();
+  if (!domain) {
+    runWebExportOnly();
+    return;
+  }
+
   const baseUrl = `https://${domain}`;
   const timestamp = `${Date.now()}-${process.pid}`;
 
@@ -545,11 +565,45 @@ async function main() {
   console.log("Updating manifests and creating landing page...");
   updateManifests(manifests, timestamp, baseUrl, assetsByHash);
 
-  console.log("Build complete! Deploy to:", baseUrl);
-
   if (metroProcess) {
     metroProcess.kill();
   }
+
+  console.log("Exporting Expo Web build to static-build...");
+  const webOutDir = path.join(process.cwd(), "static-build-web");
+  if (fs.existsSync(webOutDir)) {
+    fs.rmSync(webOutDir, { recursive: true });
+  }
+  const expoExport = spawnSync(
+    "npx",
+    ["expo", "export", "--platform", "web", "--output-dir", "static-build-web"],
+    { stdio: "inherit", shell: true, env: { ...process.env, CI: "1" }, cwd: process.cwd() }
+  );
+  if (expoExport.status !== 0) {
+    exitWithError("Expo Web export failed. Ensure expo is installed and the app builds for web.");
+  }
+  const staticBuildPath = path.join(process.cwd(), "static-build");
+  const copyRecursive = (src, dest) => {
+    const stat = fs.statSync(src);
+    if (stat.isDirectory()) {
+      if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
+      for (const name of fs.readdirSync(src)) {
+        copyRecursive(path.join(src, name), path.join(dest, name));
+      }
+    } else {
+      fs.copyFileSync(src, dest);
+    }
+  };
+  for (const name of fs.readdirSync(webOutDir)) {
+    copyRecursive(path.join(webOutDir, name), path.join(staticBuildPath, name));
+  }
+  fs.rmSync(webOutDir, { recursive: true });
+  if (!fs.existsSync(path.join(staticBuildPath, "index.html"))) {
+    exitWithError("static-build/index.html was not produced by Expo Web export.");
+  }
+  console.log("Expo Web build copied to static-build (index.html present).");
+
+  console.log("Build complete! Deploy to:", baseUrl);
   process.exit(0);
 }
 
