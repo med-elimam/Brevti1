@@ -224,13 +224,15 @@ const { registerRoutes } = require("./routes");
 registerRoutes(app);
 
 log("API routes registered");
-
-// Serve Expo Web SPA for any non-API route (e.g. /admin, /quiz, /settings)
-app.get("*", (req, res, next) => {
+// SPA fallback: serve Expo Web for any non-API route
+app.use((req, res, next) => {
   if (req.path.startsWith("/api")) return next();
-  // if a real file exists (assets), let static handle it
+
   const indexPath = path.resolve(process.cwd(), "static-build", "index.html");
-  if (fs.existsSync(indexPath)) return res.sendFile(indexPath);
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+
   return res.status(404).send("static-build/index.html not found");
 });
 
