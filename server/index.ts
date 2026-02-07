@@ -226,12 +226,23 @@ log("API routes registered");
 
 app.use(express.static(path.resolve(process.cwd(), "static-build")));
 
-app.use((_req, res) => {
+// SPA fallback for all routes not handled by API or static files
+app.use((req, res, next) => {
+  // Only handle routes that don't look like file requests (no dots in the last segment)
+  const isAPI = req.path.startsWith("/api");
+  if (isAPI) return next();
+
   const indexPath = path.resolve(process.cwd(), "static-build", "index.html");
   if (fs.existsSync(indexPath)) {
     return res.sendFile(indexPath);
   }
-  return res.status(404).send("static-build/index.html not found");
+  
+  // If static-build/index.html is missing, we fail as requested (or return 404 in dev)
+  if (process.env.NODE_ENV === "production") {
+     console.error("CRITICAL: static-build/index.html not found! Production deployment is failing.");
+     return res.status(500).send("Production error: UI build missing.");
+  }
+  return res.status(404).send("static-build/index.html not found. Run 'npm run build' first.");
 });
 
 
