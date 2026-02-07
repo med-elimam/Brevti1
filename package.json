@@ -14,7 +14,7 @@
     "start": "NODE_ENV=production node server_dist/index.js",
     "lint": "npx expo lint",
     "lint:fix": "npx expo lint --fix",
-    "build": "npx esbuild server/index.ts --platform=node --packages=external --bundle --format=cjs --outdir=server_dist && node scripts/build.js"
+    "build": "npx esbuild server/index.ts --platform=node --packages=external --bundle --format=cjs --outdir=server_dist && npx expo export --platform web && [ -f dist/index.html ] && rm -rf static-build && mv dist static-build || (echo 'Error: static-build/index.html not produced' && exit 1)"
   },
   "dependencies": {
     "@expo-google-fonts/cairo": "^0.4.2",
