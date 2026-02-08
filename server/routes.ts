@@ -1,11 +1,11 @@
 import express from "express";
 import type { Express, Request, Response } from "express";
 import multer from "multer";
-import pdfParse from "pdf-parse";
-import OpenAI from "openai";
+import * as pdfParse from "pdf-parse";
 import path from "path";
 import fs from "fs";
 import * as crypto from "crypto";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import {
   getDbForHealth,
   dbPath,
@@ -109,15 +109,40 @@ function getLanguageModeLabel(subject: Subject): { mode: string; label_ar: strin
   return { mode: 'ar_only', label_ar: 'عربية فقط' };
 }
 
-function getOpenAIClient(): { client: OpenAI; model: string } {
-  const aiApiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
-  const aiBaseUrl = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
-  if (!aiApiKey) throw new Error("Missing OpenAI API key");
-  const model = aiBaseUrl ? "gpt-4.1-nano" : (process.env.OPENAI_MODEL || "gpt-4.1-mini");
-  const client = aiBaseUrl
-    ? new OpenAI({ apiKey: aiApiKey, baseURL: aiBaseUrl })
-    : new OpenAI({ apiKey: aiApiKey });
-  return { client, model };
+function getGeminiClient(): { client: any; model: string } {
+  // Railway Standard: GEMINI_API_KEY
+  // Replit Integration: AI_INTEGRATIONS_GEMINI_API_KEY
+  const apiKey = process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GEMINI_API_KEY;
+  const baseUrl = process.env.AI_INTEGRATIONS_GEMINI_BASE_URL;
+
+  if (!apiKey) throw new Error("Missing Gemini API key (GEMINI_API_KEY)");
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  
+  if (baseUrl) {
+    (genAI as any).apiKey = apiKey;
+    (genAI as any).config = {
+      ...(genAI as any).config,
+      baseUrl: baseUrl,
+    };
+  }
+
+  const modelName = "gemini-2.0-flash";
+  return { client: genAI.getGenerativeModel({ model: modelName }), model: modelName };
+}
+
+async function generateContentWithGemini(systemPrompt: string, userPrompt: string) {
+  const { client } = getGeminiClient();
+  const result = await client.generateContent({
+    contents: [
+      { role: "user", parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] }
+    ],
+    generationConfig: {
+      maxOutputTokens: 4000,
+      responseMimeType: "application/json",
+    },
+  });
+  return result.response.text();
 }
 
 export function registerRoutes(app: Express): void {
@@ -364,7 +389,7 @@ export function registerRoutes(app: Express): void {
       if (isPdf) {
         try {
           const buffer = fs.readFileSync(file.path);
-          const data = await pdfParse(buffer);
+          const data = (pdfParse as any)(buffer);
           extractedText = normalizeText(data.text || "");
         } catch (e) {
           console.error("PDF extraction failed:", e);
@@ -530,9 +555,7 @@ export function registerRoutes(app: Express): void {
     return res.json(getExamQuestions(parseInt(req.params.id, 10)));
   });
 
-  // ═══════════════════════════════════════════════════
-  //  AI GENERATION ENDPOINTS
-  // ═══════════════════════════════════════════════════
+  // ─── AI GENERATION ENDPOINTS ────────────────────────
 
   app.post("/api/admin/ai/generate-lesson-blocks", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
@@ -540,7 +563,7 @@ export function registerRoutes(app: Express): void {
       const { lesson_id, source_ids } = req.body;
       if (!lesson_id) return res.status(400).json({ message: "lesson_id مطلوب" });
       if (!source_ids || !Array.isArray(source_ids) || source_ids.length === 0) {
-        return res.status(400).json({ message: "يجب تحديد مصدر واحد على الأقل. لا يمكن التوليد بدون مصادر." });
+        return res.status(400).json({ message: "يجب تحديد مصدر واحد على الأقل" });
       }
 
       const lesson = getLessonById(lesson_id);
@@ -556,10 +579,9 @@ export function registerRoutes(app: Express): void {
       }
 
       if (sourceTexts.join("").trim().length === 0) {
-        return res.status(400).json({ message: "المصادر المحددة لا تحتوي على نص مستخرج" });
+        return res.status(400).json({ message: "المصادر لا تحتوي على نص" });
       }
 
-      const { client, model } = getOpenAIClient();
       const langPrompt = getSubjectLanguagePrompt(subject);
 
       const systemPrompt = `أنت معلم خبير في التعليم الموريتاني متخصص في مادة ${subject.name_ar}.
@@ -573,137 +595,54 @@ ${langPrompt}
 الأنواع المتاحة:
 - heading: عنوان فرعي
 - text: شرح نصي
-- formula: صيغة رياضية (استخدم LaTeX بين $...$ للسطري و $$ ... $$ للمنفصل)
+- formula: صيغة رياضية
 - example: مثال توضيحي
-- warning: تحذير أو خطأ شائع
-- exercise: تمرين تطبيقي مع الحل
+- warning: تحذير
+- exercise: تمرين تطبيقي
 
-القواعد:
-1. استند فقط على المصادر المقدمة
-2. أنشئ 5-15 كتلة متنوعة
-3. ابدأ بعنوان ثم شرح ثم أمثلة ثم تمارين
-4. لا تكتب فقرات طويلة - جمل قصيرة مركزة على الامتحان
-5. أجب بـ JSON فقط (مصفوفة) بدون أي نص إضافي`;
+أجب بـ JSON فقط بدون أي نص إضافي`;
 
-      const response = await client.chat.completions.create({
-        model,
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt,
-          },
-          {
-            role: "user",
-            content: `المادة: ${subject.name_ar}
+      const content = await generateContentWithGemini(systemPrompt, `المادة: ${subject.name_ar}
 الدرس: ${lesson.title_ar}
-
 المصادر:
-${sourceTexts.join("\n\n---\n\n")}`,
-          },
-        ],
-        max_tokens: 4000,
-        response_format: { type: "json_object" },
-      });
+${sourceTexts.join("\n\n---\n\n")}`);
 
-      let blocksStr = response.choices[0].message.content || "[]";
       let blocks: any[];
       try {
-        const parsed = JSON.parse(blocksStr);
+        const parsed = JSON.parse(content);
         blocks = Array.isArray(parsed) ? parsed : (parsed.blocks || parsed.content || []);
       } catch {
         blocks = [];
       }
 
-      const blocksJson = JSON.stringify(blocks);
-      updateLesson(lesson_id, { content_blocks_json: blocksJson });
-
+      updateLesson(lesson_id, { content_blocks_json: JSON.stringify(blocks) });
       return res.json({ message: "تم توليد محتوى الدرس", blocks_count: blocks.length, blocks });
     } catch (err) {
       console.error(err);
-      return res.status(500).json({ message: "فشل التوليد بالذكاء الاصطناعي" });
+      return res.status(500).json({ message: "فشل التوليد" });
     }
   });
 
   app.post("/api/admin/ai/generate-questions", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
     try {
-      const { subject_id, lesson_id, source_ids, count = 5, difficulty_distribution } = req.body;
+      const { subject_id, lesson_id, source_ids, count = 5 } = req.body;
       if (!subject_id) return res.status(400).json({ message: "subject_id مطلوب" });
-      if (!source_ids || !Array.isArray(source_ids) || source_ids.length === 0) {
-        return res.status(400).json({ message: "يجب تحديد مصدر واحد على الأقل. لا يمكن التوليد بدون مصادر." });
-      }
 
       const subject = getSubjectById(subject_id);
-      if (!subject) return res.status(404).json({ message: "المادة غير موجودة" });
-
       const sourceTexts: string[] = [];
       for (const sid of source_ids) {
         const src = getSourceById(sid);
         if (src && src.extracted_text) sourceTexts.push(src.extracted_text);
       }
 
-      if (sourceTexts.join("").trim().length === 0) {
-        return res.status(400).json({ message: "المصادر لا تحتوي على نص" });
-      }
-
-      const dist = difficulty_distribution || { easy: Math.ceil(count * 0.3), medium: Math.ceil(count * 0.4), hard: count - Math.ceil(count * 0.3) - Math.ceil(count * 0.4) };
-
-      const { client, model } = getOpenAIClient();
-      const langPrompt = getSubjectLanguagePrompt(subject);
-
-      const systemPrompt = `أنت خبير في إعداد أسئلة امتحان البريفيه الموريتاني في مادة ${subject.name_ar}.
-
-${langPrompt}
-
-أنشئ ${count} سؤال اختيار من متعدد (MCQ) بالتوزيع التالي:
-- سهل: ${dist.easy}
-- متوسط: ${dist.medium}
-- صعب: ${dist.hard}
-
+      const systemPrompt = `أنشئ ${count} سؤال MCQ في مادة ${subject?.name_ar || ""}.
 أجب بـ JSON فقط بالشكل:
-{ "questions": [
-  {
-    "difficulty": "easy|medium|hard",
-    "statement_md": "نص السؤال",
-    "options": ["الخيار أ", "الخيار ب", "الخيار ج", "الخيار د"],
-    "correct_index": 0,
-    "solution_md": "شرح الإجابة الصحيحة"
-  }
-]}
+{ "questions": [{ "difficulty": "easy|medium|hard", "statement_md": "...", "options": ["...", "...", "...", "..."], "correct_index": 0, "solution_md": "..." }] }`;
 
-القواعد:
-1. استند فقط على المصادر
-2. 4 خيارات لكل سؤال
-3. correct_index: رقم الخيار الصحيح (0-3)
-4. استخدم LaTeX للصيغ الرياضية`;
-
-      const response = await client.chat.completions.create({
-        model,
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt,
-          },
-          {
-            role: "user",
-            content: `المادة: ${subject.name_ar}
-${lesson_id ? `الدرس ID: ${lesson_id}` : ""}
-
-المصادر:
-${sourceTexts.join("\n\n---\n\n")}`,
-          },
-        ],
-        max_tokens: 4000,
-        response_format: { type: "json_object" },
-      });
-
-      let questionsData: any[];
-      try {
-        const parsed = JSON.parse(response.choices[0].message.content || "{}");
-        questionsData = parsed.questions || [];
-      } catch {
-        questionsData = [];
-      }
+      const content = await generateContentWithGemini(systemPrompt, `المصادر:\n${sourceTexts.join("\n\n---\n\n")}`);
+      const parsed = JSON.parse(content);
+      const questionsData = parsed.questions || [];
 
       const createdIds: number[] = [];
       for (const q of questionsData) {
@@ -732,70 +671,20 @@ ${sourceTexts.join("\n\n---\n\n")}`,
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
     try {
       const { exam_id, source_ids } = req.body;
-      if (!exam_id) return res.status(400).json({ message: "exam_id مطلوب" });
-      if (!source_ids || !Array.isArray(source_ids) || source_ids.length === 0) {
-        return res.status(400).json({ message: "يجب تحديد مصادر" });
-      }
-
       const exam = getExamById(exam_id);
       if (!exam) return res.status(404).json({ message: "الامتحان غير موجود" });
 
-      const subject = getSubjectById(exam.subject_id);
-      if (!subject) return res.status(404).json({ message: "المادة غير موجودة" });
-
       const origQuestions = getExamQuestions(exam_id);
-
       const sourceTexts: string[] = [];
       for (const sid of source_ids) {
         const src = getSourceById(sid);
         if (src && src.extracted_text) sourceTexts.push(src.extracted_text);
       }
 
-      const { client, model } = getOpenAIClient();
-      const langPrompt = getSubjectLanguagePrompt(subject);
-
-      const existingQuestionsStr = origQuestions.map((q, i) =>
-        `${i + 1}. [${q.difficulty}] ${q.statement_md}`
-      ).join("\n");
-
-      const systemPrompt = `أنت خبير في إعداد امتحانات البريفيه الموريتاني في ${subject.name_ar}.
-
-${langPrompt}
-
-أنشئ نسخة بديلة (variant) من الامتحان التالي بنفس الهيكل والصعوبة:
-
-الامتحان الأصلي:
-${existingQuestionsStr}
-
-أنشئ ${origQuestions.length} سؤال MCQ بنفس توزيع الصعوبات.
-أجب بـ JSON:
-{ "questions": [{ "difficulty": "...", "statement_md": "...", "options": [...], "correct_index": 0, "solution_md": "..." }] }
-
-استخدم LaTeX للصيغ.`;
-
-      const response = await client.chat.completions.create({
-        model,
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt,
-          },
-          {
-            role: "user",
-            content: `المصادر:\n${sourceTexts.join("\n\n---\n\n")}`,
-          },
-        ],
-        max_tokens: 4000,
-        response_format: { type: "json_object" },
-      });
-
-      let questionsData: any[];
-      try {
-        const parsed = JSON.parse(response.choices[0].message.content || "{}");
-        questionsData = parsed.questions || [];
-      } catch {
-        questionsData = [];
-      }
+      const systemPrompt = `أنشئ نسخة بديلة من الامتحان. أجب بـ JSON: { "questions": [...] }`;
+      const content = await generateContentWithGemini(systemPrompt, `المصادر:\n${sourceTexts.join("\n\n---\n\n")}`);
+      const parsed = JSON.parse(content);
+      const questionsData = parsed.questions || [];
 
       const newExamId = createExam({
         subject_id: exam.subject_id,
@@ -821,29 +710,22 @@ ${existingQuestionsStr}
       }
 
       setExamQuestions(newExamId, qIds);
-
-      return res.json({ message: "تم إنشاء نسخة بديلة", exam_id: newExamId, question_count: qIds.length });
+      return res.json({ message: "تم إنشاء نسخة بديلة", exam_id: newExamId });
     } catch (err) {
       console.error(err);
       return res.status(500).json({ message: "فشل" });
     }
   });
 
-  // Legacy PDF extract endpoint
   app.post("/api/pdf/extract", memUpload.single("file"), async (req, res) => {
     try {
       const file = req.file;
-      if (!file) return res.status(400).json({ message: "Missing PDF file" });
-      const mimeOk = file.mimetype === "application/pdf" || file.originalname.toLowerCase().endsWith(".pdf");
-      if (!mimeOk) return res.status(400).json({ message: "File is not a PDF" });
-      const data = await pdfParse(file.buffer);
-      const text = normalizeText(data.text || "");
-      if (!text) return res.status(422).json({ message: "No extractable text" });
-      return res.json({ filename: file.originalname, pages: data.numpages ?? null, text });
+      if (!file) return res.status(400).json({ message: "Missing PDF" });
+      const data = (pdfParse as any)(file.buffer);
+      return res.json({ filename: file.originalname, text: normalizeText(data.text || "") });
     } catch (err) {
       console.error(err);
-      return res.status(500).json({ message: "PDF extraction failed" });
+      return res.status(500).json({ message: "Extraction failed" });
     }
   });
-
 }
