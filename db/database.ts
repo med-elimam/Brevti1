@@ -1,4 +1,4 @@
-import * as SQLite from 'expo-sqlite';
+import { Pool } from 'pg';
 import { getSeedData } from './seedData';
 import type {
   Subject,
@@ -15,12 +15,78 @@ import type {
   WeakLesson,
 } from './types';
 
-let db: SQLite.SQLiteDatabase | null = null;
+let pool: Pool | null = null;
 
-export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
-  if (db) return db;
-  db = await SQLite.openDatabaseAsync('brevetcoach.db');
-  return db;
+export async function getPool(): Promise<Pool> {
+  if (pool) return pool;
+  pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+  });
+  return pool;
+}
+
+// Shim to maintain compatibility with expo-sqlite interface
+export const getDatabase = async () => {
+  const p = await getPool();
+  return {
+    execAsync: async (sql: string) => {
+      await p.query(sql);
+    },
+    runAsync: async (sql: string, params: any[] = []) => {
+      const pgSql = sql.replace(/\?/g, (_, i) => `$${i + 1}`);
+      await p.query(pgSql, params);
+    },
+    getFirstAsync: async <T>(sql: string, params: any[] = []): Promise<T | null> => {
+      const pgSql = sql.replace(/\?/g, (_, i) => `$${i + 1}`);
+      const res = await p.query(pgSql, params);
+      return res.rows[0] || null;
+    },
+    getAllAsync: async <T>(sql: string, params: any[] = []): Promise<T[]> => {
+      const pgSql = sql.replace(/\?/g, (_, i) => `$${i + 1}`);
+      const res = await p.query(pgSql, params);
+      return res.rows as T[];
+    }
+  } as any;
+};
+
+export async function updateReviewQueue(lessonId: number, success: number): Promise<void> {
+  const database = await getDatabase();
+  const existing = await database.getFirstAsync<ReviewQueue>(
+    'SELECT * FROM review_queue WHERE lesson_id = ?',
+    [lessonId]
+  );
+
+  const today = new Date();
+
+  if (existing) {
+    let newInterval = existing.interval_days;
+    let newEase = existing.ease_factor;
+
+    if (success) {
+      newInterval = Math.round(existing.interval_days * existing.ease_factor);
+      newEase = Math.min(2.5, existing.ease_factor + 0.1);
+    } else {
+      newInterval = 1;
+      newEase = Math.max(1.3, existing.ease_factor - 0.2);
+    }
+
+    const nextDate = new Date(today);
+    nextDate.setDate(nextDate.getDate() + newInterval);
+
+    await database.runAsync(
+      'UPDATE review_queue SET next_review_date = ?, interval_days = ?, ease_factor = ?, last_result = ? WHERE lesson_id = ?',
+      [nextDate.toISOString().split('T')[0], newInterval, newEase, success, lessonId]
+    );
+  } else {
+    const nextDate = new Date(today);
+    nextDate.setDate(nextDate.getDate() + 1);
+
+    await database.runAsync(
+      'INSERT INTO review_queue (lesson_id, next_review_date, interval_days, ease_factor, last_result) VALUES (?, ?, 1, 2.5, ?)',
+      [lessonId, nextDate.toISOString().split('T')[0], success]
+    );
+  }
 }
 
 export async function initDatabase(): Promise<void> {
@@ -28,13 +94,13 @@ export async function initDatabase(): Promise<void> {
 
   await database.execAsync(`
     CREATE TABLE IF NOT EXISTS subjects (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
       color TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS lessons (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       subject_id INTEGER NOT NULL,
       title TEXT NOT NULL,
       summary TEXT NOT NULL,
@@ -45,7 +111,7 @@ export async function initDatabase(): Promise<void> {
     );
 
     CREATE TABLE IF NOT EXISTS study_sessions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       subject_id INTEGER NOT NULL,
       lesson_id INTEGER,
       start_time TEXT NOT NULL,
@@ -58,7 +124,7 @@ export async function initDatabase(): Promise<void> {
     );
 
     CREATE TABLE IF NOT EXISTS exercises (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       lesson_id INTEGER NOT NULL,
       difficulty INTEGER DEFAULT 1,
       question TEXT NOT NULL,
@@ -69,7 +135,7 @@ export async function initDatabase(): Promise<void> {
     );
 
     CREATE TABLE IF NOT EXISTS attempts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       exercise_id INTEGER NOT NULL,
       chosen_index INTEGER NOT NULL,
       is_correct INTEGER NOT NULL,
@@ -79,7 +145,7 @@ export async function initDatabase(): Promise<void> {
     );
 
     CREATE TABLE IF NOT EXISTS review_queue (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       lesson_id INTEGER NOT NULL UNIQUE,
       next_review_date TEXT NOT NULL,
       interval_days INTEGER DEFAULT 1,
@@ -98,10 +164,10 @@ export async function initDatabase(): Promise<void> {
     );
   `);
 
-  const settingsResult = await database.getFirstAsync<{ count: number }>(
+  const settingsResult = await database.getFirstAsync<{ count: string }>(
     'SELECT COUNT(*) as count FROM settings'
   );
-  if (!settingsResult || settingsResult.count === 0) {
+  if (!settingsResult || parseInt(settingsResult.count) === 0) {
     await database.runAsync(
       'INSERT INTO settings (id, daily_minutes_goal, pomodoro_work, pomodoro_break, onboarding_complete) VALUES (1, 60, 25, 5, 0)'
     );
@@ -112,11 +178,11 @@ export async function seedDatabase(): Promise<void> {
   const database = await getDatabase();
   const { subjects, lessons, exercises } = getSeedData();
 
-  const subjectCount = await database.getFirstAsync<{ count: number }>(
+  const subjectCount = await database.getFirstAsync<{ count: string }>(
     'SELECT COUNT(*) as count FROM subjects'
   );
 
-  if (subjectCount && subjectCount.count > 0) return;
+  if (subjectCount && parseInt(subjectCount.count) > 0) return;
 
   for (const subject of subjects) {
     await database.runAsync(
@@ -153,16 +219,6 @@ export async function seedDatabase(): Promise<void> {
 }
 
 export async function resetDatabase(): Promise<void> {
-  const database = await getDatabase();
-  await database.execAsync(`
-    DELETE FROM attempts;
-    DELETE FROM study_sessions;
-    DELETE FROM review_queue;
-    DELETE FROM exercises;
-    DELETE FROM lessons;
-    DELETE FROM subjects;
-    DELETE FROM settings;
-  `);
   await initDatabase();
   await seedDatabase();
 }
@@ -199,7 +255,7 @@ export async function updateSettings(settings: Partial<Settings>): Promise<void>
   }
 
   if (fields.length > 0) {
-    await database.runAsync(`UPDATE settings SET ${fields.join(', ')} WHERE id = 1`, values);
+    await database.runAsync(`UPDATE settings SET \${fields.join(', ')} WHERE id = 1`, values);
   }
 }
 
@@ -271,11 +327,11 @@ export async function getExercises(lessonId?: number, difficulty?: number): Prom
 
 export async function getRandomExercises(count: number, subjectId?: number): Promise<Exercise[]> {
   const database = await getDatabase();
-  let query = `
+  let query = \`
     SELECT e.* FROM exercises e
     JOIN lessons l ON e.lesson_id = l.id
-  `;
-  const params: number[] = [];
+  \`;
+  const params: any[] = [];
 
   if (subjectId) {
     query += ' WHERE l.subject_id = ?';
@@ -321,48 +377,9 @@ export async function saveStudySession(
   }
 }
 
-export async function updateReviewQueue(lessonId: number, success: number): Promise<void> {
-  const database = await getDatabase();
-  const existing = await database.getFirstAsync<ReviewQueue>(
-    'SELECT * FROM review_queue WHERE lesson_id = ?',
-    [lessonId]
-  );
-
-  const today = new Date();
-
-  if (existing) {
-    let newInterval = existing.interval_days;
-    let newEase = existing.ease_factor;
-
-    if (success) {
-      newInterval = Math.round(existing.interval_days * existing.ease_factor);
-      newEase = Math.min(2.5, existing.ease_factor + 0.1);
-    } else {
-      newInterval = 1;
-      newEase = Math.max(1.3, existing.ease_factor - 0.2);
-    }
-
-    const nextDate = new Date(today);
-    nextDate.setDate(nextDate.getDate() + newInterval);
-
-    await database.runAsync(
-      'UPDATE review_queue SET next_review_date = ?, interval_days = ?, ease_factor = ?, last_result = ? WHERE lesson_id = ?',
-      [nextDate.toISOString().split('T')[0], newInterval, newEase, success, lessonId]
-    );
-  } else {
-    const nextDate = new Date(today);
-    nextDate.setDate(nextDate.getDate() + 1);
-
-    await database.runAsync(
-      'INSERT INTO review_queue (lesson_id, next_review_date, interval_days, ease_factor, last_result) VALUES (?, ?, 1, 2.5, ?)',
-      [lessonId, nextDate.toISOString().split('T')[0], success]
-    );
-  }
-}
-
 export async function getSubjectProgress(): Promise<SubjectProgress[]> {
   const database = await getDatabase();
-  return database.getAllAsync<SubjectProgress>(`
+  return database.getAllAsync<SubjectProgress>(\`
     SELECT 
       s.id as subject_id,
       s.name as subject_name,
@@ -375,8 +392,8 @@ export async function getSubjectProgress(): Promise<SubjectProgress[]> {
       END as progress_percent
     FROM subjects s
     LEFT JOIN lessons l ON s.id = l.subject_id
-    GROUP BY s.id
-  `);
+    GROUP BY s.id, s.name, s.color
+  \`);
 }
 
 export async function getDailyStudyStats(days: number = 7): Promise<DailyStudyStats[]> {
@@ -384,7 +401,7 @@ export async function getDailyStudyStats(days: number = 7): Promise<DailyStudySt
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);
 
-  return database.getAllAsync<DailyStudyStats>(`
+  return database.getAllAsync<DailyStudyStats>(\`
     SELECT 
       DATE(start_time) as date,
       SUM(duration_minutes) as total_minutes
@@ -392,7 +409,7 @@ export async function getDailyStudyStats(days: number = 7): Promise<DailyStudySt
     WHERE DATE(start_time) >= DATE(?)
     GROUP BY DATE(start_time)
     ORDER BY date ASC
-  `, [startDate.toISOString()]);
+  \`, [startDate.toISOString()]);
 }
 
 export async function getAccuracyStats(days: number = 7): Promise<AccuracyStats[]> {
@@ -400,7 +417,7 @@ export async function getAccuracyStats(days: number = 7): Promise<AccuracyStats[
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);
 
-  return database.getAllAsync<AccuracyStats>(`
+  return database.getAllAsync<AccuracyStats>(\`
     SELECT 
       DATE(created_at) as date,
       SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) as correct,
@@ -413,24 +430,24 @@ export async function getAccuracyStats(days: number = 7): Promise<AccuracyStats[
     WHERE DATE(created_at) >= DATE(?)
     GROUP BY DATE(created_at)
     ORDER BY date ASC
-  `, [startDate.toISOString()]);
+  \`, [startDate.toISOString()]);
 }
 
 export async function getTodayStudyMinutes(): Promise<number> {
   const database = await getDatabase();
   const today = new Date().toISOString().split('T')[0];
-  const result = await database.getFirstAsync<{ total: number }>(
+  const result = await database.getFirstAsync<{ total: string }>(
     'SELECT COALESCE(SUM(duration_minutes), 0) as total FROM study_sessions WHERE DATE(start_time) = DATE(?)',
     [today]
   );
-  return result?.total || 0;
+  return result ? parseInt(result.total) : 0;
 }
 
 export async function getRecommendedLessons(count: number = 3): Promise<WeakLesson[]> {
   const database = await getDatabase();
   const today = new Date().toISOString().split('T')[0];
 
-  return database.getAllAsync<WeakLesson>(`
+  return database.getAllAsync<WeakLesson>(\`
     SELECT 
       l.id as lesson_id,
       l.title as lesson_title,
@@ -443,9 +460,7 @@ export async function getRecommendedLessons(count: number = 3): Promise<WeakLess
          WHERE e.lesson_id = l.id), 100
       ) as accuracy,
       COALESCE(
-        JULIANDAY(?) - JULIANDAY(
-          (SELECT MAX(ss.start_time) FROM study_sessions ss WHERE ss.lesson_id = l.id)
-        ), 999
+        EXTRACT(DAY FROM (DATE(?) - DATE((SELECT MAX(ss.start_time) FROM study_sessions ss WHERE ss.lesson_id = l.id)))), 999
       ) as days_since_review,
       (
         (100 - COALESCE(
@@ -455,9 +470,7 @@ export async function getRecommendedLessons(count: number = 3): Promise<WeakLess
            WHERE e.lesson_id = l.id), 100
         )) * 2 +
         COALESCE(
-          JULIANDAY(?) - JULIANDAY(
-            (SELECT MAX(ss.start_time) FROM study_sessions ss WHERE ss.lesson_id = l.id)
-          ), 999
+          EXTRACT(DAY FROM (DATE(?) - DATE((SELECT MAX(ss.start_time) FROM study_sessions ss WHERE ss.lesson_id = l.id)))), 999
         ) * 0.5 +
         CASE WHEN l.is_completed = 0 THEN 50 ELSE 0 END
       ) as priority_score
@@ -465,7 +478,7 @@ export async function getRecommendedLessons(count: number = 3): Promise<WeakLess
     JOIN subjects s ON l.subject_id = s.id
     ORDER BY priority_score DESC
     LIMIT ?
-  `, [today, today, count]);
+  \`, [today, today, count]);
 }
 
 export async function getLessonsForReview(): Promise<LessonWithSubject[]> {
