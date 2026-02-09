@@ -164,7 +164,7 @@ export default function SettingsScreen() {
             <View style={styles.separator} />
             <SettingItem
               icon="timer"
-              title="مدة جلسة البومودورو"
+              title="مدة الجلسة "
               value={`${settings?.pomodoro_work || 25} دقيقة عمل / ${settings?.pomodoro_break || 5} دقيقة راحة`}
               color={Colors.accent}
             />
