@@ -42,7 +42,7 @@ import {
 } from "./db/database";
 import { db } from "./db/database";
 import { users } from "../shared/schema";
-import { eq } from "drizzle-orm";
+import { sql, eq } from "drizzle-orm";
 import * as schema from "../shared/schema";
 
 const uploadsDir = process.env.UPLOADS_DIR || path.resolve(process.cwd(), "uploads");
@@ -77,7 +77,7 @@ function verifyAdminToken(req: Request): boolean {
   return token === adminToken || token === `Bearer ${adminToken}`;
 }
 
-function getSubjectLanguagePrompt(subject: Subject): string {
+function getSubjectLanguagePrompt(subject: any): string {
   if (subject.primary_language === 'fr') {
     return `LANGUE: Écris en français simple et clair, adapté au niveau du brevet.
 - Phrases courtes, orientées examen.
@@ -90,6 +90,7 @@ function getSubjectLanguagePrompt(subject: Subject): string {
 - عند تقديم مصطلح لأول مرة: الشرح بالعربية + (المصطلح بالفرنسية).
   مثال: الانكسار (Réfraction)، العدسة (Lentille)، البؤرة (Foyer)
 - اجعل النص قصيراً ومركزاً على الامتحان فقط.
+- يجب كتابة المعادلات الرياضية والعلمية بشكل واضح جداً باستخدام LaTeX.
 - استخدم LaTeX للصيغ: $...$ سطري، $$ ... $$ مستقل.`;
   }
 
@@ -99,7 +100,7 @@ function getSubjectLanguagePrompt(subject: Subject): string {
 - استخدم LaTeX للصيغ الرياضية إن وجدت.`;
 }
 
-function getLanguageModeLabel(subject: Subject): { mode: string; label_ar: string } {
+function getLanguageModeLabel(subject: any): { mode: string; label_ar: string } {
   if (subject.primary_language === 'fr') {
     return { mode: 'fr_only', label_ar: 'فرنسية فقط' };
   }
