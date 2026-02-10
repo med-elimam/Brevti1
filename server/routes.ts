@@ -16,13 +16,11 @@ import {
   createSubject,
   updateSubject,
   deleteSubject,
-  type Subject,
   getLessonsBySubject,
   getLessonById,
   createLesson,
   updateLesson,
   deleteLesson,
-  getLessonCountBySubject,
   getSourcesBySubject,
   getSourcesByLesson,
   getSourceById,
@@ -34,7 +32,6 @@ import {
   createQuestion,
   updateQuestion,
   deleteQuestion,
-  getQuestionCountBySubject,
   getExamsBySubject,
   getExamById,
   createExam,
@@ -42,8 +39,11 @@ import {
   deleteExam,
   getExamQuestions,
   setExamQuestions,
-  getSubjectsWithCounts,
 } from "./db/database";
+import { db } from "./db/database";
+import { users } from "../shared/schema";
+import { eq } from "drizzle-orm";
+import * as schema from "../shared/schema";
 
 const uploadsDir = process.env.UPLOADS_DIR || path.resolve(process.cwd(), "uploads");
 
@@ -152,23 +152,24 @@ export function registerRoutes(app: Express): void {
   }, express.static(uploadsDir));
 
   // ─── HEALTH ─────────────────────────────────────────
-  app.get("/api/health", (_req, res) => {
+  app.get("/api/health", async (_req, res) => {
     try {
-      const counts = getDbForHealth().prepare(`
-        SELECT
-          (SELECT COUNT(*) FROM subjects) as subjects,
-          (SELECT COUNT(*) FROM lessons) as lessons,
-          (SELECT COUNT(*) FROM sources) as sources,
-          (SELECT COUNT(*) FROM questions) as questions,
-          (SELECT COUNT(*) FROM exams) as exams
-      `).get() as Record<string, number>;
+      const subjectsCount = await db.select({ count: sql`count(*)` }).from(schema.subjects);
+      const lessonsCount = await db.select({ count: sql`count(*)` }).from(schema.lessons);
+      const sourcesCount = await db.select({ count: sql`count(*)` }).from(schema.sources);
+      const questionsCount = await db.select({ count: sql`count(*)` }).from(schema.questions);
+      const examsCount = await db.select({ count: sql`count(*)` }).from(schema.exams);
 
       res.json({
         ok: true,
         db_path: dbPath,
-        db_exists: fs.existsSync(dbPath),
-        db_size_bytes: fs.existsSync(dbPath) ? fs.statSync(dbPath).size : 0,
-        counts,
+        counts: {
+          subjects: subjectsCount[0].count,
+          lessons: lessonsCount[0].count,
+          sources: sourcesCount[0].count,
+          questions: questionsCount[0].count,
+          exams: examsCount[0].count,
+        },
       });
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err.message });
@@ -176,25 +177,25 @@ export function registerRoutes(app: Express): void {
   });
 
   // ─── ADMIN VERIFY ───────────────────────────────────
-  app.get("/api/admin/verify", (req, res) => {
-    if (!verifyAdminToken(req)) return res.status(401).json({ valid: false });
+  app.get("/api/admin/verify", async (req, res) => {
+    if (!verifyAdminToken(req)) return res.json({ valid: false });
     return res.json({ valid: true });
   });
 
-  app.get("/api/admin/subject-language-mode/:id", (req, res) => {
+  app.get("/api/admin/subject-language-mode/:id", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
-    const subject = getSubjectById(parseInt(req.params.id, 10));
+    const subject = await getSubjectById(parseInt(req.params.id, 10));
     if (!subject) return res.status(404).json({ message: "غير موجود" });
-    return res.json(getLanguageModeLabel(subject));
+    return res.json(getLanguageModeLabel(subject as any));
   });
 
   // ═══════════════════════════════════════════════════
   //  PUBLIC ENDPOINTS (mobile app)
   // ═══════════════════════════════════════════════════
 
-  app.get("/api/subjects", (_req, res) => {
+  app.get("/api/subjects", async (_req, res) => {
     try {
-      const subjects = getSubjectsWithCounts();
+      const subjects = await getActiveSubjects();
       return res.json(subjects);
     } catch (err) {
       console.error(err);
@@ -202,12 +203,12 @@ export function registerRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/lessons", (req, res) => {
+  app.get("/api/lessons", async (req, res) => {
     try {
       const { subject_id } = req.query;
       if (!subject_id) return res.status(400).json({ message: "subject_id مطلوب" });
       const sid = parseInt(subject_id as string, 10);
-      const lessons = getLessonsBySubject(sid).filter(l => l.status === "published");
+      const lessons = (await getLessonsBySubject(sid)).filter(l => l.status === "published");
       return res.json(lessons);
     } catch (err) {
       console.error(err);
@@ -215,11 +216,11 @@ export function registerRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/lesson/:id", (req, res) => {
+  app.get("/api/lesson/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) return res.status(400).json({ message: "معرف غير صالح" });
-      const lesson = getLessonById(id);
+      const lesson = await getLessonById(id);
       if (!lesson) return res.status(404).json({ message: "الدرس غير موجود" });
       return res.json(lesson);
     } catch (err) {
@@ -228,7 +229,7 @@ export function registerRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/questions", (req, res) => {
+  app.get("/api/questions", async (req, res) => {
     try {
       const { subject_id, lesson_id, difficulty, qtype } = req.query;
       const filters: any = {};
@@ -236,31 +237,32 @@ export function registerRoutes(app: Express): void {
       if (lesson_id) filters.lesson_id = parseInt(lesson_id as string, 10);
       if (difficulty) filters.difficulty = difficulty as string;
       if (qtype) filters.qtype = qtype as string;
-      return res.json(getQuestions(filters));
+      return res.json(await getQuestions(filters));
     } catch (err) {
       console.error(err);
       return res.status(500).json({ message: "فشل تحميل الأسئلة" });
     }
   });
 
-  app.get("/api/exams", (req, res) => {
+  app.get("/api/exams", async (req, res) => {
     try {
       const { subject_id } = req.query;
       if (!subject_id) return res.status(400).json({ message: "subject_id مطلوب" });
-      return res.json(getExamsBySubject(parseInt(subject_id as string, 10)));
+      return res.json(await getExamsBySubject(parseInt(subject_id as string, 10)));
     } catch (err) {
       console.error(err);
       return res.status(500).json({ message: "فشل تحميل الامتحانات" });
     }
   });
 
-  app.get("/api/exam/:id", (req, res) => {
+  app.get("/api/exam/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) return res.status(400).json({ message: "معرف غير صالح" });
-      const exam = getExamById(id);
+      const exam = await getExamById(id);
       if (!exam) return res.status(404).json({ message: "الامتحان غير موجود" });
-      const questions = getExamQuestions(id);
+      const eqData = await getExamQuestions(id);
+      const questions = eqData.map((eq: any) => ({ ...eq.question, eq_id: eq.id }));
       return res.json({ ...exam, questions });
     } catch (err) {
       console.error(err);
@@ -274,17 +276,17 @@ export function registerRoutes(app: Express): void {
 
   // ─── SUBJECTS CRUD ──────────────────────────────────
 
-  app.get("/api/admin/subjects", (req, res) => {
+  app.get("/api/admin/subjects", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
-    return res.json(getAllSubjects());
+    return res.json(await getAllSubjects());
   });
 
-  app.post("/api/admin/subjects", (req, res) => {
+  app.post("/api/admin/subjects", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
     try {
       const { key, name_ar, color, icon, order_index } = req.body;
       if (!key || !name_ar) return res.status(400).json({ message: "key و name_ar مطلوبان" });
-      const id = createSubject({ key, name_ar, color, icon, order_index });
+      const id = await createSubject({ key, name_ar, color, icon, order_index });
       return res.json({ id, message: "تم إنشاء المادة" });
     } catch (err: any) {
       if (err.message?.includes("UNIQUE")) return res.status(409).json({ message: "المفتاح موجود مسبقاً" });
@@ -293,11 +295,11 @@ export function registerRoutes(app: Express): void {
     }
   });
 
-  app.put("/api/admin/subjects/:id", (req, res) => {
+  app.put("/api/admin/subjects/:id", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
     try {
       const id = parseInt(req.params.id, 10);
-      const ok = updateSubject(id, req.body);
+      const ok = await updateSubject(id, req.body);
       if (!ok) return res.status(404).json({ message: "غير موجود" });
       return res.json({ message: "تم التحديث" });
     } catch (err) {
@@ -306,35 +308,35 @@ export function registerRoutes(app: Express): void {
     }
   });
 
-  app.delete("/api/admin/subjects/:id", (req, res) => {
+  app.delete("/api/admin/subjects/:id", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
-    const ok = deleteSubject(parseInt(req.params.id, 10));
+    const ok = await deleteSubject(parseInt(req.params.id, 10));
     if (!ok) return res.status(404).json({ message: "غير موجود" });
     return res.json({ message: "تم الحذف" });
   });
 
   // ─── LESSONS CRUD ───────────────────────────────────
 
-  app.get("/api/admin/lessons", (req, res) => {
+  app.get("/api/admin/lessons", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
     const { subject_id } = req.query;
     if (!subject_id) return res.status(400).json({ message: "subject_id مطلوب" });
-    return res.json(getLessonsBySubject(parseInt(subject_id as string, 10)));
+    return res.json(await getLessonsBySubject(parseInt(subject_id as string, 10)));
   });
 
-  app.get("/api/admin/lessons/:id", (req, res) => {
+  app.get("/api/admin/lessons/:id", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
-    const lesson = getLessonById(parseInt(req.params.id, 10));
+    const lesson = await getLessonById(parseInt(req.params.id, 10));
     if (!lesson) return res.status(404).json({ message: "غير موجود" });
     return res.json(lesson);
   });
 
-  app.post("/api/admin/lessons", (req, res) => {
+  app.post("/api/admin/lessons", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
     try {
       const { subject_id, title_ar, order_index, status, content_blocks_json, summary_ar } = req.body;
       if (!subject_id || !title_ar) return res.status(400).json({ message: "subject_id و title_ar مطلوبان" });
-      const id = createLesson({ subject_id, title_ar, order_index, status, content_blocks_json, summary_ar });
+      const id = await createLesson({ subject_id, title_ar, order_index, status, content_blocks_json, summary_ar });
       return res.json({ id, message: "تم إنشاء الدرس" });
     } catch (err) {
       console.error(err);
@@ -342,11 +344,11 @@ export function registerRoutes(app: Express): void {
     }
   });
 
-  app.put("/api/admin/lessons/:id", (req, res) => {
+  app.put("/api/admin/lessons/:id", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
     try {
       const id = parseInt(req.params.id, 10);
-      const ok = updateLesson(id, req.body);
+      const ok = await updateLesson(id, req.body);
       if (!ok) return res.status(404).json({ message: "غير موجود" });
       return res.json({ message: "تم التحديث" });
     } catch (err) {
@@ -355,20 +357,20 @@ export function registerRoutes(app: Express): void {
     }
   });
 
-  app.delete("/api/admin/lessons/:id", (req, res) => {
+  app.delete("/api/admin/lessons/:id", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
-    const ok = deleteLesson(parseInt(req.params.id, 10));
+    const ok = await deleteLesson(parseInt(req.params.id, 10));
     if (!ok) return res.status(404).json({ message: "غير موجود" });
     return res.json({ message: "تم الحذف" });
   });
 
   // ─── SOURCES CRUD ───────────────────────────────────
 
-  app.get("/api/admin/sources", (req, res) => {
+  app.get("/api/admin/sources", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
     const { subject_id, lesson_id } = req.query;
-    if (lesson_id) return res.json(getSourcesByLesson(parseInt(lesson_id as string, 10)));
-    if (subject_id) return res.json(getSourcesBySubject(parseInt(subject_id as string, 10)));
+    if (lesson_id) return res.json(await getSourcesByLesson(parseInt(lesson_id as string, 10)));
+    if (subject_id) return res.json(await getSourcesBySubject(parseInt(subject_id as string, 10)));
     return res.status(400).json({ message: "subject_id أو lesson_id مطلوب" });
   });
 
@@ -389,14 +391,14 @@ export function registerRoutes(app: Express): void {
       if (isPdf) {
         try {
           const buffer = fs.readFileSync(file.path);
-          const data = (pdfParse as any)(buffer);
+          const data = await (pdfParse as any)(buffer);
           extractedText = normalizeText(data.text || "");
         } catch (e) {
           console.error("PDF extraction failed:", e);
         }
       }
 
-      const id = createSource({
+      const id = await createSource({
         subject_id: parseInt(subject_id, 10),
         lesson_id: lesson_id ? parseInt(lesson_id, 10) : null,
         type: fileType,
@@ -415,11 +417,11 @@ export function registerRoutes(app: Express): void {
     }
   });
 
-  app.put("/api/admin/sources/:id", (req, res) => {
+  app.put("/api/admin/sources/:id", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
     try {
       const id = parseInt(req.params.id, 10);
-      const ok = updateSource(id, req.body);
+      const ok = await updateSource(id, req.body);
       if (!ok) return res.status(404).json({ message: "غير موجود" });
       return res.json({ message: "تم التحديث" });
     } catch (err) {
@@ -428,16 +430,16 @@ export function registerRoutes(app: Express): void {
     }
   });
 
-  app.delete("/api/admin/sources/:id", (req, res) => {
+  app.delete("/api/admin/sources/:id", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
     try {
-      const source = getSourceById(parseInt(req.params.id, 10));
+      const source = await getSourceById(parseInt(req.params.id, 10));
       if (!source) return res.status(404).json({ message: "غير موجود" });
       if (source.filename) {
         const filePath = path.join(uploadsDir, source.filename);
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
       }
-      deleteSource(source.id);
+      await deleteSource(source.id);
       return res.json({ message: "تم الحذف" });
     } catch (err) {
       console.error(err);
@@ -447,7 +449,7 @@ export function registerRoutes(app: Express): void {
 
   // ─── QUESTIONS CRUD ─────────────────────────────────
 
-  app.get("/api/admin/questions", (req, res) => {
+  app.get("/api/admin/questions", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
     const { subject_id, lesson_id, difficulty, qtype } = req.query;
     const filters: any = {};
@@ -455,15 +457,15 @@ export function registerRoutes(app: Express): void {
     if (lesson_id) filters.lesson_id = parseInt(lesson_id as string, 10);
     if (difficulty) filters.difficulty = difficulty;
     if (qtype) filters.qtype = qtype;
-    return res.json(getQuestions(filters));
+    return res.json(await getQuestions(filters));
   });
 
-  app.post("/api/admin/questions", (req, res) => {
+  app.post("/api/admin/questions", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
     try {
       const { subject_id, lesson_id, difficulty, qtype, statement_md, options_json, correct_answer_json, solution_md, tags_json, source_ids_json } = req.body;
       if (!subject_id || !statement_md) return res.status(400).json({ message: "subject_id و statement_md مطلوبان" });
-      const id = createQuestion({
+      const id = await createQuestion({
         subject_id, lesson_id, difficulty: difficulty || "medium", qtype: qtype || "mcq",
         statement_md, options_json, correct_answer_json, solution_md, tags_json, source_ids_json,
       });
@@ -474,11 +476,11 @@ export function registerRoutes(app: Express): void {
     }
   });
 
-  app.put("/api/admin/questions/:id", (req, res) => {
+  app.put("/api/admin/questions/:id", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
     try {
       const id = parseInt(req.params.id, 10);
-      const ok = updateQuestion(id, req.body);
+      const ok = await updateQuestion(id, req.body);
       if (!ok) return res.status(404).json({ message: "غير موجود" });
       return res.json({ message: "تم التحديث" });
     } catch (err) {
@@ -487,28 +489,28 @@ export function registerRoutes(app: Express): void {
     }
   });
 
-  app.delete("/api/admin/questions/:id", (req, res) => {
+  app.delete("/api/admin/questions/:id", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
-    const ok = deleteQuestion(parseInt(req.params.id, 10));
+    const ok = await deleteQuestion(parseInt(req.params.id, 10));
     if (!ok) return res.status(404).json({ message: "غير موجود" });
     return res.json({ message: "تم الحذف" });
   });
 
   // ─── EXAMS CRUD ─────────────────────────────────────
 
-  app.get("/api/admin/exams", (req, res) => {
+  app.get("/api/admin/exams", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
     const { subject_id } = req.query;
     if (!subject_id) return res.status(400).json({ message: "subject_id مطلوب" });
-    return res.json(getExamsBySubject(parseInt(subject_id as string, 10)));
+    return res.json(await getExamsBySubject(parseInt(subject_id as string, 10)));
   });
 
-  app.post("/api/admin/exams", (req, res) => {
+  app.post("/api/admin/exams", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
     try {
       const { subject_id, title_ar, year, duration_minutes, structure_json } = req.body;
       if (!subject_id || !title_ar) return res.status(400).json({ message: "subject_id و title_ar مطلوبان" });
-      const id = createExam({ subject_id, title_ar, year, duration_minutes, structure_json });
+      const id = await createExam({ subject_id, title_ar, year, duration_minutes, structure_json });
       return res.json({ id, message: "تم إنشاء الامتحان" });
     } catch (err) {
       console.error(err);
@@ -516,11 +518,11 @@ export function registerRoutes(app: Express): void {
     }
   });
 
-  app.put("/api/admin/exams/:id", (req, res) => {
+  app.put("/api/admin/exams/:id", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
     try {
       const id = parseInt(req.params.id, 10);
-      const ok = updateExam(id, req.body);
+      const ok = await updateExam(id, req.body);
       if (!ok) return res.status(404).json({ message: "غير موجود" });
       return res.json({ message: "تم التحديث" });
     } catch (err) {
@@ -529,20 +531,20 @@ export function registerRoutes(app: Express): void {
     }
   });
 
-  app.delete("/api/admin/exams/:id", (req, res) => {
+  app.delete("/api/admin/exams/:id", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
-    const ok = deleteExam(parseInt(req.params.id, 10));
+    const ok = await deleteExam(parseInt(req.params.id, 10));
     if (!ok) return res.status(404).json({ message: "غير موجود" });
     return res.json({ message: "تم الحذف" });
   });
 
-  app.put("/api/admin/exams/:id/questions", (req, res) => {
+  app.put("/api/admin/exams/:id/questions", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
     try {
       const id = parseInt(req.params.id, 10);
       const { question_ids } = req.body;
       if (!Array.isArray(question_ids)) return res.status(400).json({ message: "question_ids مطلوب" });
-      setExamQuestions(id, question_ids);
+      await setExamQuestions(id, question_ids);
       return res.json({ message: "تم تحديث أسئلة الامتحان" });
     } catch (err) {
       console.error(err);
@@ -550,9 +552,10 @@ export function registerRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/admin/exams/:id/questions", (req, res) => {
+  app.get("/api/admin/exams/:id/questions", async (req, res) => {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
-    return res.json(getExamQuestions(parseInt(req.params.id, 10)));
+    const questions = await getExamQuestions(parseInt(req.params.id, 10));
+    return res.json(questions.map((eq: any) => ({ ...eq.question, eq_id: eq.id })));
   });
 
   // ─── AI GENERATION ENDPOINTS ────────────────────────
@@ -566,15 +569,15 @@ export function registerRoutes(app: Express): void {
         return res.status(400).json({ message: "يجب تحديد مصدر واحد على الأقل" });
       }
 
-      const lesson = getLessonById(lesson_id);
+      const lesson = await getLessonById(lesson_id);
       if (!lesson) return res.status(404).json({ message: "الدرس غير موجود" });
 
-      const subject = getSubjectById(lesson.subject_id);
+      const subject = await getSubjectById(lesson.subject_id);
       if (!subject) return res.status(404).json({ message: "المادة غير موجودة" });
 
       const sourceTexts: string[] = [];
       for (const sid of source_ids) {
-        const src = getSourceById(sid);
+        const src = await getSourceById(sid);
         if (src && src.extracted_text) sourceTexts.push(src.extracted_text);
       }
 
@@ -632,7 +635,7 @@ ${sourceTexts.join("\n\n---\n\n")}`);
       const subject = getSubjectById(subject_id);
       const sourceTexts: string[] = [];
       for (const sid of source_ids) {
-        const src = getSourceById(sid);
+        const src = await getSourceById(sid);
         if (src && src.extracted_text) sourceTexts.push(src.extracted_text);
       }
 
@@ -677,7 +680,7 @@ ${sourceTexts.join("\n\n---\n\n")}`);
       const origQuestions = getExamQuestions(exam_id);
       const sourceTexts: string[] = [];
       for (const sid of source_ids) {
-        const src = getSourceById(sid);
+        const src = await getSourceById(sid);
         if (src && src.extracted_text) sourceTexts.push(src.extracted_text);
       }
 
