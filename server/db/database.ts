@@ -240,7 +240,13 @@ export async function getExamsBySubject(subjectId: number) {
 }
 
 export async function initDatabase() {
-  // Database schema is managed via drizzle-kit push
+  const { execSync } = require("child_process");
+  try {
+    execSync("npx drizzle-kit push", { stdio: "inherit" });
+    console.log("Database schema pushed successfully");
+  } catch (err) {
+    console.error("Database schema push failed:", err);
+  }
 }
 
 export async function getDbForHealth() {
