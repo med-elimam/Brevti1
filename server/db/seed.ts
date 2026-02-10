@@ -141,10 +141,10 @@ const lessonsBySubject: Record<string, string[]> = {
   ],
 };
 
-export function seedDatabase() {
-  initDatabase();
+export async function seedDatabase() {
+  await initDatabase();
 
-  const existing = getAllSubjects();
+  const existing = await getAllSubjects();
   if (existing.length > 0) {
     console.log("Database already seeded, skipping...");
     return;
@@ -153,15 +153,20 @@ export function seedDatabase() {
   console.log("Seeding database...");
 
   for (const s of subjects) {
-    createSubject(s);
+    await createSubject(s);
   }
 
   for (const [subjectKey, titles] of Object.entries(lessonsBySubject)) {
-    const subject = getSubjectByKey(subjectKey);
+    const subject = await getSubjectByKey(subjectKey);
     if (!subject) continue;
-    titles.forEach((title, idx) => {
-      createLesson({ subject_id: subject.id, title_ar: title, order_index: idx + 1, status: 'draft' });
-    });
+    for (let i = 0; i < titles.length; i++) {
+      await createLesson({ 
+        subject_id: subject.id, 
+        title_ar: titles[i], 
+        order_index: i + 1, 
+        status: 'draft' 
+      });
+    }
   }
 
   console.log("Database seeded successfully!");
