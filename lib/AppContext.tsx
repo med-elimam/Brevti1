@@ -1,12 +1,4 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
-import {
-  initDatabase,
-  seedDatabase,
-  getSettings,
-  updateSettings,
-  getTodayStudyMinutes,
-  resetDatabase,
-} from '@/db/database';
 import type { Settings } from '@/db/types';
 import { getApiUrl } from '@/lib/query-client';
 
@@ -70,17 +62,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const initializeApp = async () => {
     try {
       setIsLoading(true);
-      await initDatabase();
-      await seedDatabase();
+      const baseUrl = getApiUrl();
       
-      const appSettings = await getSettings();
-      setSettings(appSettings);
-      setIsInitialized(appSettings?.onboarding_complete === 1);
+      // Load settings via API
+      const settingsRes = await globalThis.fetch(new URL('/api/settings', baseUrl).toString());
+      if (settingsRes.ok) {
+        const appSettings: Settings = await settingsRes.json();
+        setSettings(appSettings);
+        setIsInitialized(appSettings?.onboarding_complete === 1);
+      }
 
       await loadSubjectsFromServer();
       
-      const minutes = await getTodayStudyMinutes();
-      setTodayMinutes(minutes);
+      // Load today's minutes via API
+      const minutesRes = await globalThis.fetch(new URL('/api/study-minutes/today', baseUrl).toString());
+      if (minutesRes.ok) {
+        const { minutes } = await minutesRes.json();
+        setTodayMinutes(minutes);
+      }
     } catch (error) {
       console.error('Error initializing app:', error);
     } finally {
@@ -90,14 +89,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const refreshData = async () => {
     try {
-      const appSettings = await getSettings();
-      setSettings(appSettings);
-      setIsInitialized(appSettings?.onboarding_complete === 1);
+      const baseUrl = getApiUrl();
+      const settingsRes = await globalThis.fetch(new URL('/api/settings', baseUrl).toString());
+      if (settingsRes.ok) {
+        const appSettings: Settings = await settingsRes.json();
+        setSettings(appSettings);
+        setIsInitialized(appSettings?.onboarding_complete === 1);
+      }
 
       await loadSubjectsFromServer();
       
-      const minutes = await getTodayStudyMinutes();
-      setTodayMinutes(minutes);
+      const minutesRes = await globalThis.fetch(new URL('/api/study-minutes/today', baseUrl).toString());
+      if (minutesRes.ok) {
+        const { minutes } = await minutesRes.json();
+        setTodayMinutes(minutes);
+      }
     } catch (error) {
       console.error('Error refreshing data:', error);
     }
@@ -105,11 +111,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateAppSettings = async (newSettings: Partial<Settings>) => {
     try {
-      await updateSettings(newSettings);
-      const updated = await getSettings();
-      setSettings(updated);
-      if (newSettings.onboarding_complete !== undefined) {
-        setIsInitialized(updated?.onboarding_complete === 1);
+      const baseUrl = getApiUrl();
+      const response = await globalThis.fetch(new URL('/api/settings', baseUrl).toString(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newSettings),
+      });
+      
+      if (response.ok) {
+        const updated: Settings = await response.json();
+        setSettings(updated);
+        if (newSettings.onboarding_complete !== undefined) {
+          setIsInitialized(updated?.onboarding_complete === 1);
+        }
       }
     } catch (error) {
       console.error('Error updating settings:', error);
@@ -119,7 +133,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const resetAppData = async () => {
     try {
       setIsLoading(true);
-      await resetDatabase();
+      const baseUrl = getApiUrl();
+      await globalThis.fetch(new URL('/api/reset', baseUrl).toString(), { method: 'POST' });
       await initializeApp();
     } catch (error) {
       console.error('Error resetting data:', error);
