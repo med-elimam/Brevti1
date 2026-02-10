@@ -151,6 +151,51 @@ export function registerRoutes(app: Express): void {
     next();
   }, express.static(uploadsDir));
 
+  // ─── SETTINGS ───────────────────────────────────────
+  app.get("/api/settings", async (_req, res) => {
+    try {
+      const result = await db.select().from(schema.settings).limit(1);
+      return res.json(result[0] || {});
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/settings", async (req, res) => {
+    try {
+      const existing = await db.select().from(schema.settings).limit(1);
+      if (existing.length > 0) {
+        await db.update(schema.settings).set(req.body).where(eq(schema.settings.id, existing[0].id));
+      } else {
+        await db.insert(schema.settings).values(req.body);
+      }
+      const updated = await db.select().from(schema.settings).limit(1);
+      return res.json(updated[0]);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/study-minutes/today", async (_req, res) => {
+     // Mock or simple implementation for now
+     res.json({ minutes: 0 });
+  });
+
+  app.post("/api/reset", async (_req, res) => {
+    try {
+      await db.delete(schema.exam_questions);
+      await db.delete(schema.exams);
+      await db.delete(schema.questions);
+      await db.delete(schema.sources);
+      await db.delete(schema.lessons);
+      await db.delete(schema.subjects);
+      await db.delete(schema.settings);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ─── HEALTH ─────────────────────────────────────────
   app.get("/api/health", async (_req, res) => {
     try {

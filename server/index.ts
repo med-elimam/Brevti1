@@ -10,6 +10,12 @@ const port = parseInt(process.env.PORT || "5000", 10);
 
 const app = express();
 
+app.set("etag", false);
+app.use("/api", (req, res, next) => {
+  res.setHeader("Cache-Control", "no-store");
+  next();
+});
+
 //app.get("/", (_req, res) => {
   //res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
   //res.end("ok");
@@ -226,43 +232,35 @@ log("API routes registered");
 
 app.use(express.static(path.resolve(process.cwd(), "static-build")));
 
-// SPA fallback for all routes not handled by API or static files
-app.use((req, res, next) => {
-  const isAPI = req.path.startsWith("/api");
-  if (isAPI) return next();
+  // SPA fallback for all routes not handled by API or static files
+  app.use((req, res, next) => {
+    // Only handle routes that don't look like file requests (no dots in the last segment)
+    const isAPI = req.path.startsWith("/api");
+    if (isAPI) return next();
 
-  const indexPath = path.resolve(process.cwd(), "static-build", "index.html");
-  if (fs.existsSync(indexPath)) {
-    return res.sendFile(indexPath);
-  }
-  
-  if (process.env.NODE_ENV !== "production") {
-    const proxyReq = http.request(
-      {
-        hostname: "localhost",
-        port: 8081,
-        path: req.originalUrl || req.path,
-        method: req.method,
-        headers: { ...req.headers, host: "localhost:8081" },
-      },
-      (proxyRes) => {
-        Object.entries(proxyRes.headers).forEach(([key, value]) => {
-          if (value) res.setHeader(key, value);
-        });
-        res.status(proxyRes.statusCode || 200);
-        proxyRes.pipe(res);
-      },
-    );
-    proxyReq.on("error", () => {
-      return res.status(502).send("Metro bundler not available. Wait for Expo to start.");
-    });
-    req.pipe(proxyReq);
-    return;
-  }
+    // In development, proxy root requests to Metro
+    if (process.env.NODE_ENV !== "production") {
+      const { createProxyMiddleware } = require("http-proxy-middleware");
+      const metroProxy = createProxyMiddleware({
+        target: "http://localhost:8081",
+        changeOrigin: true,
+        ws: true,
+      });
+      return metroProxy(req, res, next);
+    }
 
-  console.error("CRITICAL: static-build/index.html not found! Production deployment is failing.");
-  return res.status(500).send("Production error: UI build missing.");
-});
+    const indexPath = path.resolve(process.cwd(), "static-build", "index.html");
+    if (fs.existsSync(indexPath)) {
+      return res.sendFile(indexPath);
+    }
+    
+    // If static-build/index.html is missing, we fail as requested (or return 404 in dev)
+    if (process.env.NODE_ENV === "production") {
+       console.error("CRITICAL: static-build/index.html not found! Production deployment is failing.");
+       return res.status(500).send("Production error: UI build missing.");
+    }
+    return res.status(404).send("static-build/index.html not found. Run 'npm run build' first.");
+  });
 
 
 app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
