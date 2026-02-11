@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from "expo-file-system";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getApiUrl } from '@/lib/query-client';
 import Colors from '@/constants/colors';
@@ -458,23 +459,33 @@ function LessonsTab({ api, subjects }: { api: any; subjects: any[] }) {
                           <Btn 
                             title="رفع" 
                             onPress={async () => {
-                              try {
-                                const result = await DocumentPicker.getDocumentAsync({ type: 'image/*' });
-                                if (result.assets && result.assets.length > 0) {
-                                  const formData = new FormData();
-                                  const file = result.assets[0];
-                                  formData.append('image', {
-                                    uri: file.uri,
-                                    name: file.name,
-                                    type: file.mimeType || 'image/jpeg',
-                                  } as any);
-                                  const res = await api('POST', '/api/admin/upload-content-image', formData, true);
-                                  setBlockForm({ ...blockForm, content: res.url });
-                                }
-                              } catch (e) {
-                                Alert.alert('خطأ', 'فشل رفع الصورة');
-                              }
-                            }} 
+  try {
+    const result = await DocumentPicker.getDocumentAsync({ type: "image/*" });
+
+    if (result.assets && result.assets.length > 0) {
+      const file = result.assets[0];
+
+      const baseUrl = getApiUrl();
+      const url = new URL("/api/admin/upload-content-image", baseUrl).toString();
+
+      const uploadRes = await FileSystem.uploadAsync(url, file.uri, {
+        httpMethod: "POST",
+        uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+        fieldName: "image",
+        headers: {
+          "X-Admin-Token": adminToken,
+        },
+      });
+
+      const data = JSON.parse(uploadRes.body);
+      setBlockForm({ ...blockForm, content: data.url });
+    } else {
+      Alert.alert("تنبيه", "لم يتم اختيار صورة");
+    }
+  } catch (e) {
+    Alert.alert("خطأ", "فشل رفع الصورة");
+  }
+}}
                             small 
                             icon="cloud-upload-outline" 
                           />
