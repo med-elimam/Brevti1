@@ -7,6 +7,7 @@ import * as Haptics from 'expo-haptics';
 import { LessonCard } from '@/components/LessonCard';
 import { ProgressRing } from '@/components/ProgressRing';
 import { getApiUrl } from '@/lib/query-client';
+import { useApp } from '@/lib/AppContext';
 import Colors from '@/constants/colors';
 
 interface Subject {
@@ -35,6 +36,7 @@ interface Lesson {
 export default function SubjectDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
+  const { lessonProgress } = useApp();
   const [subject, setSubject] = useState<Subject | null>(null);
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -71,8 +73,11 @@ export default function SubjectDetailScreen() {
     }
   };
 
-  const completedLessons = lessons.filter((l) => l.status === 'published').length;
-  const progress = lessons.length > 0 ? (completedLessons / lessons.length) * 100 : 0;
+  const completedCount = lessons.filter(l => {
+    const p = lessonProgress[l.id];
+    return p && p.is_studied && p.has_notes && p.exercise_completed;
+  }).length;
+  const progress = lessons.length > 0 ? (completedCount / lessons.length) * 100 : 0;
 
   if (!subject) {
     return (
@@ -114,7 +119,7 @@ export default function SubjectDetailScreen() {
             />
             <View style={styles.statsInfo}>
               <Text style={styles.statsText}>
-                {completedLessons} من {lessons.length} دروس مكتملة
+                {completedCount} من {lessons.length} دروس مكتملة
               </Text>
             </View>
           </View>
@@ -130,14 +135,18 @@ export default function SubjectDetailScreen() {
         {isLoading ? (
           <ActivityIndicator color={Colors.primary} size="large" />
         ) : (
-          lessons.map((lesson) => (
-            <LessonCard
-              key={lesson.id}
-              title={`${lesson.order_index}. ${lesson.title_ar}`}
-              isCompleted={lesson.status === 'published'}
-              onPress={() => router.push(`/lessons/${lesson.id}`)}
-            />
-          ))
+          lessons.map((lesson) => {
+            const p = lessonProgress[lesson.id];
+            const isCompleted = !!(p && p.is_studied && p.has_notes && p.exercise_completed);
+            return (
+              <LessonCard
+                key={lesson.id}
+                title={`${lesson.order_index}. ${lesson.title_ar}`}
+                isCompleted={isCompleted}
+                onPress={() => router.push(`/lessons/${lesson.id}`)}
+              />
+            );
+          })
         )}
       </ScrollView>
     </View>
