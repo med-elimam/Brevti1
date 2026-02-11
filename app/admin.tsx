@@ -29,6 +29,7 @@ const BLOCK_TYPES = [
   { key: 'example', label: 'مثال', icon: 'bulb' as const },
   { key: 'warning', label: 'تحذير', icon: 'warning' as const },
   { key: 'exercise', label: 'تمرين', icon: 'fitness' as const },
+  { key: 'image', label: 'صورة', icon: 'image' as const },
 ];
 
 function confirmAction(message: string, onConfirm: () => void) {
@@ -444,7 +445,44 @@ function LessonsTab({ api, subjects }: { api: any; subjects: any[] }) {
                       </ScrollView>
                     </View>
                     <Field label="العنوان" value={blockForm.title} onChangeText={(v: string) => setBlockForm({ ...blockForm, title: v })} />
-                    <Field label="المحتوى" value={blockForm.content} onChangeText={(v: string) => setBlockForm({ ...blockForm, content: v })} multiline placeholder={blockForm.type === 'formula' ? 'استخدم LaTeX: \\(x^2 + 1\\)' : 'اكتب المحتوى...'} />
+                    {blockForm.type === 'image' ? (
+                      <View style={s.field}>
+                        <Text style={s.fieldLabel}>رابط الصورة أو مسارها</Text>
+                        <View style={s.btnRow}>
+                          <TextInput 
+                            style={[s.input, { flex: 1, marginLeft: 8 }]} 
+                            value={blockForm.content} 
+                            onChangeText={(v) => setBlockForm({ ...blockForm, content: v })} 
+                            placeholder="أدخل رابط الصورة أو ارفع ملفاً"
+                          />
+                          <Btn 
+                            title="رفع" 
+                            onPress={async () => {
+                              try {
+                                const result = await DocumentPicker.getDocumentAsync({ type: 'image/*' });
+                                if (result.assets && result.assets.length > 0) {
+                                  const formData = new FormData();
+                                  const file = result.assets[0];
+                                  formData.append('image', {
+                                    uri: file.uri,
+                                    name: file.name,
+                                    type: file.mimeType || 'image/jpeg',
+                                  } as any);
+                                  const res = await api('POST', '/api/admin/upload-content-image', formData, true);
+                                  setBlockForm({ ...blockForm, content: res.url });
+                                }
+                              } catch (e) {
+                                Alert.alert('خطأ', 'فشل رفع الصورة');
+                              }
+                            }} 
+                            small 
+                            icon="cloud-upload-outline" 
+                          />
+                        </View>
+                      </View>
+                    ) : (
+                      <Field label="المحتوى" value={blockForm.content} onChangeText={(v: string) => setBlockForm({ ...blockForm, content: v })} multiline placeholder={blockForm.type === 'formula' ? 'استخدم LaTeX: \\(x^2 + 1\\)' : 'اكتب المحتوى...'} />
+                    )}
                     <View style={s.btnGroup}>
                       <Btn title="حفظ الكتلة" onPress={saveBlock} color={Colors.success} icon="checkmark" small />
                       <Btn title="إلغاء" onPress={() => setEditingBlockIdx(null)} color={Colors.textSecondary} small />
