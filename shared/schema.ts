@@ -89,6 +89,13 @@ export const lesson_progress = pgTable("lesson_progress", {
   updated_at: timestamp("updated_at").defaultNow(),
 });
 
+export const settings = pgTable("settings", {
+  id: serial("id").primaryKey(),
+  site_name: text("site_name").notNull().default("تطبيقي"),
+  admin_email: text("admin_email"),
+  config_json: text("config_json").default("{}"),
+});
+
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
@@ -102,3 +109,5 @@ export type Source = typeof sources.$inferSelect;
 export type Question = typeof questions.$inferSelect;
 export type Exam = typeof exams.$inferSelect;
 export type ExamQuestion = typeof exam_questions.$inferSelect;
+export type LessonProgress = typeof lesson_progress.$inferSelect;
+export type Setting = typeof settings.$inferSelect;
