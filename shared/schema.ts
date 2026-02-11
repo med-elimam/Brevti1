@@ -79,6 +79,16 @@ export const exam_questions = pgTable("exam_questions", {
   order_index: integer("order_index").notNull().default(0),
 });
 
+export const lesson_progress = pgTable("lesson_progress", {
+  id: serial("id").primaryKey(),
+  lesson_id: integer("lesson_id").notNull().references(() => lessons.id, { onDelete: "cascade" }),
+  is_studied: boolean("is_studied").notNull().default(false),
+  has_notes: boolean("has_notes").notNull().default(false),
+  exercise_completed: boolean("exercise_completed").notNull().default(false),
+  completed_at: timestamp("completed_at"),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
