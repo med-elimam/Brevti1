@@ -14,14 +14,24 @@ export interface ServerSubject {
   question_count: number;
 }
 
+export interface LessonProgress {
+  lesson_id: number;
+  is_studied: boolean;
+  has_notes: boolean;
+  exercise_completed: boolean;
+  completed_at: string | null;
+}
+
 interface AppContextValue {
   isLoading: boolean;
   isInitialized: boolean;
   settings: Settings | null;
   subjects: ServerSubject[];
+  lessonProgress: Record<number, LessonProgress>;
   todayMinutes: number;
   daysUntilExam: number;
   updateAppSettings: (newSettings: Partial<Settings>) => Promise<void>;
+  updateLessonProgress: (lessonId: number, progress: Partial<LessonProgress>) => Promise<void>;
   refreshData: () => Promise<void>;
   resetAppData: () => Promise<void>;
 }
@@ -33,6 +43,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [isInitialized, setIsInitialized] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [subjects, setSubjects] = useState<ServerSubject[]>([]);
+  const [lessonProgress, setLessonProgress] = useState<Record<number, LessonProgress>>({});
   const [todayMinutes, setTodayMinutes] = useState(0);
 
   const daysUntilExam = useMemo(() => {
@@ -54,8 +65,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const data: ServerSubject[] = await response.json();
         setSubjects(data);
       }
+
+      const progressRes = await globalThis.fetch(new URL('/api/lesson-progress', baseUrl).toString());
+      if (progressRes.ok) {
+        const progressData: LessonProgress[] = await progressRes.json();
+        const progressMap = progressData.reduce((acc, curr) => ({
+          ...acc,
+          [curr.lesson_id]: curr
+        }), {});
+        setLessonProgress(progressMap);
+      }
     } catch (error) {
-      console.error('Error loading subjects from server:', error);
+      console.error('Error loading subjects/progress from server:', error);
     }
   };
 
@@ -130,6 +151,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const updateLessonProgress = async (lessonId: number, progress: Partial<LessonProgress>) => {
+    try {
+      const baseUrl = getApiUrl();
+      const current = lessonProgress[lessonId] || {
+        lesson_id: lessonId,
+        is_studied: false,
+        has_notes: false,
+        exercise_completed: false,
+        completed_at: null
+      };
+      
+      const updated = { ...current, ...progress };
+      
+      const response = await globalThis.fetch(new URL(`/api/lesson-progress/${lessonId}`, baseUrl).toString(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
+      });
+
+      if (response.ok) {
+        setLessonProgress(prev => ({
+          ...prev,
+          [lessonId]: updated
+        }));
+      }
+    } catch (error) {
+      console.error('Error updating lesson progress:', error);
+    }
+  };
+
   const resetAppData = async () => {
     try {
       setIsLoading(true);
@@ -153,9 +204,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       isInitialized,
       settings,
       subjects,
+      lessonProgress,
       todayMinutes,
       daysUntilExam,
       updateAppSettings,
+      updateLessonProgress,
       refreshData,
       resetAppData,
     }),
@@ -164,6 +217,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       isInitialized,
       settings,
       subjects,
+      lessonProgress,
       todayMinutes,
       daysUntilExam,
     ]
