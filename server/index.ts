@@ -279,13 +279,15 @@ log("All initialization complete, starting listener");
 app.listen(port, "0.0.0.0", () => {
   log(`Server listening on port ${port}`);
 
-  setImmediate(() => {
-    try {
-      const { seedDatabase } = require("./db/seed");
-      seedDatabase();
-      log("Database seeded successfully");
-    } catch (err) {
-      console.error("Database seeding error (non-fatal):", err);
-    }
-  });
+  if (process.env.NODE_ENV === "production") {
+    setImmediate(() => {
+      try {
+        const { seedDatabase } = require("./db/seed");
+        seedDatabase();
+        log("Database seeded successfully");
+      } catch (err) {
+        console.error("Database seeding error (non-fatal):", err);
+      }
+    });
+  }
 });

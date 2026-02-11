@@ -161,7 +161,8 @@ export function registerRoutes(app: Express): void {
       const result = await db.select().from(schema.settings).limit(1);
       return res.json(result[0] || {});
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      console.error("Settings fetch error:", err);
+      res.status(500).json({ message: "خطأ داخلي في السيرفر" });
     }
   });
 
@@ -228,7 +229,7 @@ export function registerRoutes(app: Express): void {
   // ─── LESSON PROGRESS ────────────────────────────────
   app.get("/api/lesson-progress", async (req, res) => {
     try {
-      const progress = db.select().from(lesson_progress).all();
+      const progress = await db.select().from(schema.lesson_progress);
       res.json(progress);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -240,55 +241,18 @@ export function registerRoutes(app: Express): void {
       const lessonId = parseInt(req.params.id);
       const { is_studied, has_notes, exercise_completed } = req.body;
       
-      const existing = db.select().from(lesson_progress).where(eq(lesson_progress.lesson_id, lessonId)).get();
+      const [existing] = await db.select().from(schema.lesson_progress).where(eq(schema.lesson_progress.lesson_id, lessonId)).limit(1);
       
       const is_completed = is_studied && has_notes && exercise_completed;
       const completed_at = is_completed ? new Date() : null;
 
       if (existing) {
-        db.update(lesson_progress)
+        await db.update(schema.lesson_progress)
           .set({ is_studied, has_notes, exercise_completed, completed_at, updated_at: new Date() })
-          .where(eq(lesson_progress.lesson_id, lessonId))
-          .run();
+          .where(eq(schema.lesson_progress.lesson_id, lessonId));
       } else {
-        db.insert(lesson_progress)
-          .values({ lesson_id: lessonId, is_studied, has_notes, exercise_completed, completed_at })
-          .run();
-      }
-      res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  app.get("/api/lesson-progress", async (req, res) => {
-    try {
-      const progress = db.select().from(schema.lesson_progress).all();
-      res.json(progress);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  app.post("/api/lesson-progress/:id", async (req, res) => {
-    try {
-      const lessonId = parseInt(req.params.id);
-      const { is_studied, has_notes, exercise_completed } = req.body;
-      
-      const existing = db.select().from(schema.lesson_progress).where(eq(schema.lesson_progress.lesson_id, lessonId)).get();
-      
-      const is_completed = is_studied && has_notes && exercise_completed;
-      const completed_at = is_completed ? new Date() : null;
-
-      if (existing) {
-        db.update(schema.lesson_progress)
-          .set({ is_studied, has_notes, exercise_completed, completed_at, updated_at: new Date() })
-          .where(eq(schema.lesson_progress.lesson_id, lessonId))
-          .run();
-      } else {
-        db.insert(schema.lesson_progress)
-          .values({ lesson_id: lessonId, is_studied, has_notes, exercise_completed, completed_at })
-          .run();
+        await db.insert(schema.lesson_progress)
+          .values({ lesson_id: lessonId, is_studied, has_notes, exercise_completed, completed_at });
       }
       res.json({ success: true });
     } catch (err: any) {
@@ -298,20 +262,26 @@ export function registerRoutes(app: Express): void {
 
   app.get("/api/lessons/all", async (req, res) => {
     try {
-      res.json(db.select().from(schema.lessons).where(eq(schema.lessons.status, "published")).all());
+      res.json(await db.select().from(schema.lessons).where(eq(schema.lessons.status, "published")));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  // ─── ADMIN VERIFY ───────────────────────────────────
   app.post("/api/admin/upload-content-image", upload.single("image"), async (req, res) => {
-  if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
-  if (!req.file) return res.status(400).json({ message: "لم يتم رفع صورة" });
+    try {
+      if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
+      if (!req.file) return res.status(400).json({ message: "لم يتم رفع صورة" });
 
-  const base = `${req.protocol}://${req.get("host")}`;
-  return res.json({ url: `${base}/uploads/${req.file.filename}` });
-});
+      const host = req.get("host");
+      const protocol = req.protocol;
+      const baseUrl = `${protocol}://${host}`;
+      return res.json({ url: `${baseUrl}/uploads/${req.file.filename}` });
+    } catch (err: any) {
+      console.error("Upload error:", err);
+      res.status(500).json({ message: "خطأ أثناء الرفع" });
+    }
+  });
 
   app.get("/api/admin/verify", async (req, res) => {
     if (!verifyAdminToken(req)) return res.json({ valid: false });
@@ -322,7 +292,7 @@ export function registerRoutes(app: Express): void {
     if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
     const subject = await getSubjectById(parseInt(req.params.id, 10));
     if (!subject) return res.status(404).json({ message: "غير موجود" });
-    return res.json(getLanguageModeLabel(subject as any));
+    return res.json(getLanguageModeLabel(subject));
   });
 
   // ═══════════════════════════════════════════════════
