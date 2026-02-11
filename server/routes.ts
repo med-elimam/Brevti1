@@ -306,10 +306,12 @@ export function registerRoutes(app: Express): void {
 
   // ─── ADMIN VERIFY ───────────────────────────────────
   app.post("/api/admin/upload-content-image", upload.single("image"), async (req, res) => {
-    if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
-    if (!req.file) return res.status(400).json({ message: "لم يتم رفع صورة" });
-    return res.json({ url: `/uploads/${req.file.filename}` });
-  });
+  if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
+  if (!req.file) return res.status(400).json({ message: "لم يتم رفع صورة" });
+
+  const base = `${req.protocol}://${req.get("host")}`;
+  return res.json({ url: `${base}/uploads/${req.file.filename}` });
+});
 
   app.get("/api/admin/verify", async (req, res) => {
     if (!verifyAdminToken(req)) return res.json({ valid: false });
