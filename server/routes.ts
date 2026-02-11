@@ -46,6 +46,9 @@ import { sql, eq } from "drizzle-orm";
 import * as schema from "../shared/schema";
 
 const uploadsDir = process.env.UPLOADS_DIR || path.resolve(process.cwd(), "uploads");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
 
 const diskStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadsDir),
