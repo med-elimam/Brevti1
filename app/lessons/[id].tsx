@@ -1,11 +1,12 @@
 import { useState, useCallback } from 'react';
-import { StyleSheet, Text, View, ScrollView, Pressable, Platform, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, Pressable, Platform, ActivityIndicator, Image } from 'react-native';
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { getApiUrl } from '@/lib/query-client';
+import { useApp } from '@/lib/AppContext';
 import Colors from '@/constants/colors';
 
 interface Lesson {
@@ -27,7 +28,7 @@ interface Subject {
 }
 
 interface ContentBlock {
-  type: 'heading' | 'text' | 'formula' | 'example' | 'warning' | 'exercise';
+  type: 'heading' | 'text' | 'formula' | 'example' | 'warning' | 'exercise' | 'image';
   title: string;
   content: string;
 }
@@ -35,12 +36,24 @@ interface ContentBlock {
 export default function LessonDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
+  const { lessonProgress, updateLessonProgress } = useApp();
   const [lesson, setLesson] = useState<Lesson | null>(null);
   const [subject, setSubject] = useState<Subject | null>(null);
   const [contentBlocks, setContentBlocks] = useState<ContentBlock[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const webTopInset = Platform.OS === 'web' ? 67 : 0;
+
+  const progress = lessonProgress[parseInt(id)] || {
+    is_studied: false,
+    has_notes: false,
+    exercise_completed: false
+  };
+
+  const toggleProgress = (key: keyof typeof progress) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    updateLessonProgress(parseInt(id), { [key]: !progress[key] });
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -162,6 +175,17 @@ export default function LessonDetailScreen() {
             <Text style={styles.cardContent}>{block.content}</Text>
           </View>
         );
+      case 'image':
+        return (
+          <View key={index} style={styles.imageBlock}>
+            {block.title ? <Text style={styles.blockTitle}>{block.title}</Text> : null}
+            <Image 
+              source={{ uri: block.content.startsWith('http') ? block.content : `${getApiUrl()}${block.content}` }} 
+              style={styles.image}
+              resizeMode="contain"
+            />
+          </View>
+        );
       default:
         return (
           <View key={index} style={styles.textBlock}>
@@ -227,6 +251,35 @@ export default function LessonDetailScreen() {
             <Text style={styles.emptyText}>لا يوجد محتوى لهذا الدرس بعد.</Text>
           </View>
         )}
+
+        <View style={styles.completionSection}>
+          <Text style={styles.sectionTitle}>إكمال الدرس</Text>
+          <View style={styles.completionGrid}>
+            <Pressable 
+              style={[styles.completionItem, progress.is_studied && styles.completionItemDone]}
+              onPress={() => toggleProgress('is_studied')}
+            >
+              <Ionicons name={progress.is_studied ? "checkmark-circle" : "ellipse-outline"} size={24} color={progress.is_studied ? Colors.success : Colors.textSecondary} />
+              <Text style={[styles.completionText, progress.is_studied && styles.completionTextDone]}>تمت الدراسة</Text>
+            </Pressable>
+
+            <Pressable 
+              style={[styles.completionItem, progress.has_notes && styles.completionItemDone]}
+              onPress={() => toggleProgress('has_notes')}
+            >
+              <Ionicons name={progress.has_notes ? "checkmark-circle" : "ellipse-outline"} size={24} color={progress.has_notes ? Colors.success : Colors.textSecondary} />
+              <Text style={[styles.completionText, progress.has_notes && styles.completionTextDone]}>تدوين الملاحظات</Text>
+            </Pressable>
+
+            <Pressable 
+              style={[styles.completionItem, progress.exercise_completed && styles.completionItemDone]}
+              onPress={() => toggleProgress('exercise_completed')}
+            >
+              <Ionicons name={progress.exercise_completed ? "checkmark-circle" : "ellipse-outline"} size={24} color={progress.exercise_completed ? Colors.success : Colors.textSecondary} />
+              <Text style={[styles.completionText, progress.exercise_completed && styles.completionTextDone]}>حل التمارين</Text>
+            </Pressable>
+          </View>
+        </View>
 
         <View style={{ height: 100 }} />
       </ScrollView>
@@ -430,5 +483,54 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: Colors.textSecondary,
     textAlign: 'center',
+  },
+  imageBlock: {
+    marginBottom: 16,
+    alignItems: 'center',
+  },
+  image: {
+    width: '100%',
+    height: 250,
+    borderRadius: 8,
+    backgroundColor: Colors.surfaceLight,
+  },
+  completionSection: {
+    marginTop: 32,
+    paddingTop: 24,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.text,
+    textAlign: 'right',
+    marginBottom: 16,
+  },
+  completionGrid: {
+    gap: 12,
+  },
+  completionItem: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    gap: 12,
+  },
+  completionItemDone: {
+    borderColor: Colors.success + '40',
+    backgroundColor: Colors.success + '05',
+  },
+  completionText: {
+    fontSize: 16,
+    color: Colors.text,
+    fontWeight: '500',
+  },
+  completionTextDone: {
+    color: Colors.success,
+    textDecorationLine: 'line-through',
   },
 });
