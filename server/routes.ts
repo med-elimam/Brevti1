@@ -222,7 +222,92 @@ export function registerRoutes(app: Express): void {
     }
   });
 
+  // ─── LESSON PROGRESS ────────────────────────────────
+  app.get("/api/lesson-progress", async (req, res) => {
+    try {
+      const progress = db.select().from(lesson_progress).all();
+      res.json(progress);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/lesson-progress/:id", async (req, res) => {
+    try {
+      const lessonId = parseInt(req.params.id);
+      const { is_studied, has_notes, exercise_completed } = req.body;
+      
+      const existing = db.select().from(lesson_progress).where(eq(lesson_progress.lesson_id, lessonId)).get();
+      
+      const is_completed = is_studied && has_notes && exercise_completed;
+      const completed_at = is_completed ? new Date() : null;
+
+      if (existing) {
+        db.update(lesson_progress)
+          .set({ is_studied, has_notes, exercise_completed, completed_at, updated_at: new Date() })
+          .where(eq(lesson_progress.lesson_id, lessonId))
+          .run();
+      } else {
+        db.insert(lesson_progress)
+          .values({ lesson_id: lessonId, is_studied, has_notes, exercise_completed, completed_at })
+          .run();
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/lesson-progress", async (req, res) => {
+    try {
+      const progress = db.select().from(schema.lesson_progress).all();
+      res.json(progress);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/lesson-progress/:id", async (req, res) => {
+    try {
+      const lessonId = parseInt(req.params.id);
+      const { is_studied, has_notes, exercise_completed } = req.body;
+      
+      const existing = db.select().from(schema.lesson_progress).where(eq(schema.lesson_progress.lesson_id, lessonId)).get();
+      
+      const is_completed = is_studied && has_notes && exercise_completed;
+      const completed_at = is_completed ? new Date() : null;
+
+      if (existing) {
+        db.update(schema.lesson_progress)
+          .set({ is_studied, has_notes, exercise_completed, completed_at, updated_at: new Date() })
+          .where(eq(schema.lesson_progress.lesson_id, lessonId))
+          .run();
+      } else {
+        db.insert(schema.lesson_progress)
+          .values({ lesson_id: lessonId, is_studied, has_notes, exercise_completed, completed_at })
+          .run();
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/lessons/all", async (req, res) => {
+    try {
+      res.json(db.select().from(schema.lessons).where(eq(schema.lessons.status, "published")).all());
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ─── ADMIN VERIFY ───────────────────────────────────
+  app.post("/api/admin/upload-content-image", upload.single("image"), async (req, res) => {
+    if (!verifyAdminToken(req)) return res.status(401).json({ message: "غير مصرح" });
+    if (!req.file) return res.status(400).json({ message: "لم يتم رفع صورة" });
+    return res.json({ url: `/uploads/${req.file.filename}` });
+  });
+
   app.get("/api/admin/verify", async (req, res) => {
     if (!verifyAdminToken(req)) return res.json({ valid: false });
     return res.json({ valid: true });
